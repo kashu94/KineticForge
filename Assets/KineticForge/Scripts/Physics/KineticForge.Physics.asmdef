@@ -1,0 +1,17 @@
+{
+    "name": "KineticForge.Physics",
+    "rootNamespace": "KineticForge.Physics",
+    "references": [
+        "KineticForge.Core",
+        "KineticForge.Tracking"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
