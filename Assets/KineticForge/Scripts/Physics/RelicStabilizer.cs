@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using KineticForge.Core;
 using KineticForge.Tracking;
 using UnityEngine;
@@ -21,6 +22,16 @@ namespace KineticForge.Physics
     /// Optionally, a smooth Perlin wobble torque scaled by instability is applied while a hand holds the relic.
     /// </description></item>
     /// </list>
+    /// <para>
+    /// Disturbances are physical torques, not raw accelerations. The wobble and <see cref="AddDisturbance"/> are sized
+    /// against the baseline inertia, so with the scaled tensor a braced relic really turns less: its angular response is
+    /// divided by the current inertia scale. Torques act in the relic's principal axes, so the wobble rotates with it like a
+    /// hand tremor.
+    /// </para>
+    /// <para>
+    /// By default stabilization applies only while a hand holds the relic (<see cref="ForgeEvents.RelicGrabChanged"/>). A
+    /// released relic gets its original damping and inertia back, so it falls and tumbles like any other object.
+    /// </para>
     /// <para>
     /// Stability comes from <see cref="StanceTracker.OnStanceStabilityChanged"/> on an assigned tracker, or one found once
     /// when the component is enabled. If no tracker exists, a structured warning is logged once, a fallback stability is
@@ -46,6 +57,8 @@ namespace KineticForge.Physics
         const float ApplyEpsilon = 0.0005f;
         const float WobbleCutoff = 0.001f;
         const float NoiseSeedRange = 1000f;
+        const int HandMask = 0x7;
+        const int AnonymousHandBit = 1 << (int)ForgeHand.None;
 
         static bool s_warnedMissingTracker;
 
@@ -61,6 +74,12 @@ namespace KineticForge.Physics
         [Header("Response")]
         [SerializeField, Tooltip("Maps stance stability (x) to physical stabilization (y). Both axes in [0, 1].")]
         AnimationCurve _responseCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
+
+        [SerializeField, Tooltip("Stabilize only while a hand holds the relic (ForgeEvents.RelicGrabChanged). A released relic keeps its original damping and inertia. Untick to test without a grab system.")]
+        bool _stabilizeOnlyWhileGrabbed = true;
+
+        [SerializeField, Tooltip("Switch the Rigidbody to interpolation on Awake if it has none, so a held relic moves smoothly between physics steps.")]
+        bool _enforceInterpolation = true;
 
         [Header("Linear Damping")]
         [SerializeField, Min(0f), Tooltip("Linear damping at zero stability.")]
@@ -90,7 +109,7 @@ namespace KineticForge.Physics
         [SerializeField, Tooltip("Wobble only while a hand holds this relic (ForgeEvents.RelicGrabChanged). Untick to test without a grab system.")]
         bool _wobbleOnlyWhileGrabbed = true;
 
-        [SerializeField, Min(0f), Tooltip("Peak wobble angular acceleration (rad/s^2) at zero stability.")]
+        [SerializeField, Min(0f), Tooltip("Peak wobble angular acceleration (rad/s^2) at zero stability and baseline inertia. Higher inertia scales reduce it further.")]
         float _maxWobbleAcceleration = 8f;
 
         [SerializeField, Min(0.01f), Tooltip("How fast the wobble noise evolves. Higher values feel more jittery.")]
@@ -110,9 +129,13 @@ namespace KineticForge.Physics
 
         float _targetStability;
         float _appliedResponse;
+        float _writtenResponse;
+        float _appliedInertiaScale = 1f;
+        bool _appliedActive;
         bool _hasApplied;
         bool _dirty;
-        int _grabCount;
+        int _grabMask;
+        int _anonymousGrabs;
         Vector3 _noiseSeed;
 
         StanceTracker _subscribedTracker;
@@ -132,11 +155,23 @@ namespace KineticForge.Physics
         /// <summary>Latest stance stability received, in [0, 1].</summary>
         public float TargetStability => _targetStability;
 
-        /// <summary>Response-curve output last written to the Rigidbody, in [0, 1].</summary>
+        /// <summary>Response-curve output for the latest stability, in [0, 1]. Also drives the wobble.</summary>
         public float AppliedResponse => _appliedResponse;
 
-        /// <summary>True while at least one hand holds this relic.</summary>
-        public bool IsGrabbed => _grabCount > 0;
+        /// <summary>Inertia multiplier currently applied. 1 while stabilization is inactive or inertia cannot be scaled.</summary>
+        public float CurrentInertiaScale => _appliedActive && _canScaleInertia ? _appliedInertiaScale : 1f;
+
+        /// <summary>True while at least one hand, or a grab not tied to a hand, holds this relic.</summary>
+        public bool IsGrabbed => _grabMask != 0 || _anonymousGrabs > 0;
+
+        /// <summary>True while stance stabilization is written to the Rigidbody.</summary>
+        public bool IsStabilizing => !_stabilizeOnlyWhileGrabbed || IsGrabbed;
+
+        /// <summary>Collider-derived inertia tensor captured as the baseline, in the principal frame.</summary>
+        public Vector3 BaselineInertiaTensor => _baselineInertiaTensor;
+
+        /// <summary>Stance tracker currently followed, or null while following the event bus.</summary>
+        public StanceTracker StanceSource => _subscribedTracker;
 
         /// <summary>Switches the stance tracker this relic follows. Pass null to search the scene again.</summary>
         /// <param name="tracker">Tracker to follow, or null.</param>
@@ -154,6 +189,24 @@ namespace KineticForge.Physics
             {
                 BindStanceSource();
             }
+        }
+
+        /// <summary>
+        /// Applies an angular impulse sized to change the relic's angular velocity by
+        /// <paramref name="worldAngularVelocityChange"/> (rad/s) at baseline inertia. A braced stance, with its higher
+        /// inertia scale, reduces the actual change. Use for chisel recoil, bumps and scripted disturbances.
+        /// </summary>
+        /// <param name="worldAngularVelocityChange">Desired angular velocity change in world space at baseline inertia.</param>
+        public void AddDisturbance(Vector3 worldAngularVelocityChange)
+        {
+            if (_body == null || _body.isKinematic || !ForgeMath.IsFinite(worldAngularVelocityChange))
+            {
+                return;
+            }
+
+            Quaternion principalToWorld = _body.rotation * _body.inertiaTensorRotation;
+            Vector3 principal = Quaternion.Inverse(principalToWorld) * worldAngularVelocityChange;
+            AddBaselineScaledTorque(principal, ForceMode.Impulse);
         }
 
         /// <summary>
@@ -196,6 +249,13 @@ namespace KineticForge.Physics
                 UnityEngine.Random.Range(0f, NoiseSeedRange),
                 UnityEngine.Random.Range(0f, NoiseSeedRange));
 
+            if (_enforceInterpolation && _body.interpolation == RigidbodyInterpolation.None)
+            {
+                _body.interpolation = RigidbodyInterpolation.Interpolate;
+                ForgeLog.Info(ForgeLogChannel.Physics, LogSource, "INTERPOLATION_ENABLED",
+                    "Relic '" + name + "' had no Rigidbody interpolation; enabled it for smooth held motion.", this);
+            }
+
             _baselineLinearDamping = _body.linearDamping;
             _baselineAngularDamping = _body.angularDamping;
             _baselineAutomaticInertia = _body.automaticInertiaTensor;
@@ -212,12 +272,21 @@ namespace KineticForge.Physics
         {
             ForgeEvents.RelicGrabChanged -= _onRelicGrabChanged;
             UnbindStanceSource();
-            _grabCount = 0;
+            _grabMask = 0;
+            _anonymousGrabs = 0;
             RestoreBaseline();
         }
 
         void FixedUpdate()
         {
+            // A tracker destroyed under us (for example on a rig respawn) would freeze stability; rebind instead.
+            if (!ReferenceEquals(_subscribedTracker, null) && _subscribedTracker == null)
+            {
+                UnbindStanceSource();
+                _stanceTracker = null;
+                BindStanceSource();
+            }
+
             if (_dirty)
             {
                 ApplyStability();
@@ -260,8 +329,8 @@ namespace KineticForge.Physics
                 s_warnedMissingTracker = true;
                 ForgeLog.Warn(ForgeLogChannel.Physics, LogSource, "STANCE_TRACKER_MISSING",
                     "No StanceTracker found for relic '" + name + "'. Holding fallback stability " +
-                    _fallbackStability.ToString("0.##") + " and following ForgeEvents.StanceChanged until a tracker appears. " +
-                    "Logged once for all relics.", this);
+                    _fallbackStability.ToString("0.##", CultureInfo.InvariantCulture) +
+                    " and following ForgeEvents.StanceChanged until a tracker appears. Logged once for all relics.", this);
             }
 
             ForgeEvents.StanceChanged += _onBusStanceChanged;
@@ -287,7 +356,7 @@ namespace KineticForge.Physics
 
         void SetTargetStability(float stability)
         {
-            _targetStability = Mathf.Clamp01(stability);
+            _targetStability = ForgeMath.Sanitize01(stability, _targetStability);
             _dirty = true;
         }
 
@@ -303,7 +372,23 @@ namespace KineticForge.Physics
                 return;
             }
 
-            _grabCount = payload.IsGrabbed ? _grabCount + 1 : Mathf.Max(0, _grabCount - 1);
+            bool wasGrabbed = IsGrabbed;
+            int bit = 1 << ((int)payload.Hand & HandMask);
+            if (bit == AnonymousHandBit)
+            {
+                // Grabs not tied to a hand (scripted holds, fixtures) can overlap, so they are counted.
+                _anonymousGrabs = payload.IsGrabbed ? _anonymousGrabs + 1 : Mathf.Max(0, _anonymousGrabs - 1);
+            }
+            else
+            {
+                // One bit per hand makes repeated grab or release events from the same hand idempotent.
+                _grabMask = payload.IsGrabbed ? _grabMask | bit : _grabMask & ~bit;
+            }
+
+            if (IsGrabbed != wasGrabbed)
+            {
+                _dirty = true;
+            }
         }
 
         #endregion
@@ -315,21 +400,33 @@ namespace KineticForge.Physics
             _dirty = false;
 
             float response = EvaluateResponse(_targetStability);
-            if (_hasApplied && Mathf.Abs(response - _appliedResponse) < ApplyEpsilon)
+            _appliedResponse = response;
+
+            // Compare against the value last written to the body, so many sub-epsilon steps still add up to a write.
+            bool active = IsStabilizing;
+            bool stateChanged = !_hasApplied || active != _appliedActive;
+            if (!stateChanged && (!active || Mathf.Abs(response - _writtenResponse) < ApplyEpsilon))
             {
                 return;
             }
 
-            _appliedResponse = response;
+            _writtenResponse = response;
+            _appliedActive = active;
             _hasApplied = true;
+
+            if (!active)
+            {
+                RestorePhysicalBaseline();
+                return;
+            }
 
             _body.linearDamping = Mathf.Lerp(_unstableLinearDamping, _stableLinearDamping, response);
             _body.angularDamping = Mathf.Lerp(_unstableAngularDamping, _stableAngularDamping, response);
 
             if (_canScaleInertia)
             {
-                float inertiaScale = Mathf.Lerp(_unstableInertiaScale, _stableInertiaScale, response);
-                _body.inertiaTensor = _baselineInertiaTensor * inertiaScale;
+                _appliedInertiaScale = Mathf.Lerp(_unstableInertiaScale, _stableInertiaScale, response);
+                _body.inertiaTensor = _baselineInertiaTensor * _appliedInertiaScale;
                 _body.inertiaTensorRotation = _baselineInertiaTensorRotation;
             }
         }
@@ -341,7 +438,7 @@ namespace KineticForge.Physics
                 return;
             }
 
-            if (_wobbleOnlyWhileGrabbed && _grabCount == 0)
+            if (_wobbleOnlyWhileGrabbed && !IsGrabbed)
             {
                 return;
             }
@@ -360,7 +457,27 @@ namespace KineticForge.Physics
                 Mathf.PerlinNoise(t + _noiseSeed.z, _noiseSeed.z) - 0.5f);
 
             // Centered Perlin noise spans about [-0.5, 0.5]; doubling maps it to about [-1, 1].
-            _body.AddTorque(noise * (2f * instability * _maxWobbleAcceleration), ForceMode.Acceleration);
+            AddBaselineScaledTorque(noise * (2f * instability * _maxWobbleAcceleration), ForceMode.Force);
+        }
+
+        /// <summary>
+        /// Applies a principal-frame angular quantity scaled by the baseline inertia: an angular acceleration with
+        /// <see cref="ForceMode.Force"/>, or an angular velocity change with <see cref="ForceMode.Impulse"/>. The engine then
+        /// divides by the current, stance-scaled inertia.
+        /// </summary>
+        void AddBaselineScaledTorque(Vector3 principalAngularQuantity, ForceMode mode)
+        {
+            if (!_canScaleInertia)
+            {
+                // No valid tensor to size a torque against: apply the motion directly in world space.
+                Vector3 world = _body.rotation * _body.inertiaTensorRotation * principalAngularQuantity;
+                _body.AddTorque(world, mode == ForceMode.Impulse ? ForceMode.VelocityChange : ForceMode.Acceleration);
+                return;
+            }
+
+            Vector3 principalTorque = Vector3.Scale(_baselineInertiaTensor, principalAngularQuantity);
+            Quaternion principalToWorld = _body.rotation * _body.inertiaTensorRotation;
+            _body.AddTorque(principalToWorld * principalTorque, mode);
         }
 
         float EvaluateResponse(float stability)
@@ -370,14 +487,16 @@ namespace KineticForge.Physics
                 return stability;
             }
 
-            return Mathf.Clamp01(_responseCurve.Evaluate(stability));
+            return ForgeMath.Sanitize01(_responseCurve.Evaluate(stability), stability);
         }
 
         void CaptureInertiaBaseline()
         {
             _baselineInertiaTensor = _body.inertiaTensor;
             _baselineInertiaTensorRotation = _body.inertiaTensorRotation;
-            _canScaleInertia = _baselineInertiaTensor.x > 0f && _baselineInertiaTensor.y > 0f && _baselineInertiaTensor.z > 0f;
+            _canScaleInertia = _baselineInertiaTensor.x > 0f && _baselineInertiaTensor.y > 0f &&
+                               _baselineInertiaTensor.z > 0f && ForgeMath.IsFinite(_baselineInertiaTensor);
+            _appliedInertiaScale = 1f;
 
             if (!_canScaleInertia)
             {
@@ -394,8 +513,16 @@ namespace KineticForge.Physics
                 return;
             }
 
+            RestorePhysicalBaseline();
+            _hasApplied = false;
+            _appliedActive = false;
+        }
+
+        void RestorePhysicalBaseline()
+        {
             _body.linearDamping = _baselineLinearDamping;
             _body.angularDamping = _baselineAngularDamping;
+            _appliedInertiaScale = 1f;
 
             if (_baselineAutomaticInertia)
             {
@@ -406,8 +533,6 @@ namespace KineticForge.Physics
                 _body.inertiaTensor = _baselineInertiaTensor;
                 _body.inertiaTensorRotation = _baselineInertiaTensorRotation;
             }
-
-            _hasApplied = false;
         }
 
         #endregion

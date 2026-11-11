@@ -1,0 +1,28 @@
+{
+    "name": "KineticForge.Tests.Editor",
+    "rootNamespace": "KineticForge.Tests",
+    "references": [
+        "KineticForge.Core",
+        "KineticForge.Tracking",
+        "KineticForge.Physics",
+        "KineticForge.Platform",
+        "KineticForge.Crafting",
+        "UnityEngine.TestRunner",
+        "UnityEditor.TestRunner"
+    ],
+    "includePlatforms": [
+        "Editor"
+    ],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": true,
+    "precompiledReferences": [
+        "nunit.framework.dll"
+    ],
+    "autoReferenced": false,
+    "defineConstraints": [
+        "UNITY_INCLUDE_TESTS"
+    ],
+    "versionDefines": [],
+    "noEngineReferences": false
+}

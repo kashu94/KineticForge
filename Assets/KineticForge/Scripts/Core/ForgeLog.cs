@@ -16,11 +16,14 @@ namespace KineticForge.Core
         /// <summary>Relic physics and stabilization.</summary>
         Physics = 2,
 
-        /// <summary>Carving, chiselling and mesh deformation.</summary>
+        /// <summary>Carving, chiseling and mesh deformation.</summary>
         Crafting = 3,
 
         /// <summary>Audio, visual and pseudo-haptic feedback.</summary>
         Feedback = 4,
+
+        /// <summary>Headset platform services: frame pacing, focus and session state.</summary>
+        Platform = 5,
     }
 
     /// <summary>
@@ -94,6 +97,7 @@ namespace KineticForge.Core
                 case ForgeLogChannel.Physics: return "Physics";
                 case ForgeLogChannel.Crafting: return "Crafting";
                 case ForgeLogChannel.Feedback: return "Feedback";
+                case ForgeLogChannel.Platform: return "Platform";
                 default: return "Unknown";
             }
         }

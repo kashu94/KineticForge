@@ -1,0 +1,25 @@
+{
+    "name": "KineticForge.Crafting",
+    "rootNamespace": "KineticForge.Crafting",
+    "references": [
+        "KineticForge.Core",
+        "KineticForge.Tracking",
+        "KineticForge.Physics",
+        "Oculus.VR"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [
+        {
+            "name": "com.meta.xr.sdk.core",
+            "expression": "60.0.0",
+            "define": "KF_META_XR_CORE"
+        }
+    ],
+    "noEngineReferences": false
+}

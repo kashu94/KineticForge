@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using UnityEngine;
 
 namespace KineticForge.Core
@@ -27,6 +28,13 @@ namespace KineticForge.Core
     /// A transition requested while another is being applied, for example by a <see cref="ForgeEvents.GamePhaseChanged"/>
     /// subscriber, is queued and applied after the current one finishes instead of nesting. The latest queued request wins.
     /// Timers use scaled time, so setting <see cref="Time.timeScale"/> to zero pauses the flow.
+    /// </para>
+    /// <para>
+    /// Pausing: the manager combines <see cref="ForgePauseReason"/> flags from application focus, OS suspension,
+    /// <see cref="ForgeEvents.PauseRequestChanged"/> (raised by platform monitors when the Quest system menu opens or the
+    /// headset is removed) and <see cref="SetManualPause"/>. While any reason is active, flow timers stop, and optionally
+    /// time scale and audio are frozen. <see cref="ForgeEvents.ExperiencePauseChanged"/> is raised on every change.
+    /// Application focus and suspension are ignored in the Editor, so clicking other windows never stalls a play test.
     /// </para>
     /// </remarks>
     [DisallowMultipleComponent]
@@ -77,6 +85,16 @@ namespace KineticForge.Core
         [SerializeField, Min(0f), Tooltip("Seconds the completion sequence plays before looping, when looping is enabled.")]
         float _completionDuration = 10f;
 
+        [Header("Pause")]
+        [SerializeField, Tooltip("Pause when the app loses focus, is suspended, the Quest system menu opens or the headset is removed. Manual pauses always work.")]
+        bool _pauseOnFocusLoss = true;
+
+        [SerializeField, Tooltip("Set Time.timeScale to 0 while paused, freezing physics and scaled-time effects. The previous value is restored on resume.")]
+        bool _freezeTimeWhilePaused = true;
+
+        [SerializeField, Tooltip("Pause all audio through AudioListener.pause while paused.")]
+        bool _pauseAudioWhilePaused = true;
+
         ForgePhase _phase;
         CalibrationStep _calibrationStep;
         float _phaseElapsed;
@@ -91,9 +109,16 @@ namespace KineticForge.Core
         bool _pendingAllowsReentry;
         ForgePhase _pendingPhase;
 
+        ForgePauseReason _pauseReasons;
+        bool _isPaused;
+        bool _ownsTimeScale;
+        bool _ownsAudioPause;
+        float _timeScaleBeforePause = 1f;
+
         Action<StanceChangedEvent> _onStanceChanged;
         Action<StanceCalibratedEvent> _onStanceCalibrated;
         Action<ChiselStrikeEvent> _onChiselStrike;
+        Action<PauseRequestEvent> _onPauseRequest;
 
         #region Public API
 
@@ -125,6 +150,16 @@ namespace KineticForge.Core
         /// <summary>Forging progress on the current relic in [0, 1].</summary>
         public float ForgeProgress => Mathf.Clamp01((float)_qualifiedStrikes / Mathf.Max(1, _requiredStrikes));
 
+        /// <summary>True while any pause reason is active. Flow timers do not advance while paused.</summary>
+        public bool IsPaused => _isPaused;
+
+        /// <summary>Every pause reason currently active.</summary>
+        public ForgePauseReason PauseReasons => _pauseReasons;
+
+        /// <summary>Pauses or resumes from code, a debug panel or an in-game menu.</summary>
+        /// <param name="paused">True to add the manual pause reason, false to clear it.</param>
+        public void SetManualPause(bool paused) => SetPauseReason(ForgePauseReason.Manual, paused);
+
         /// <summary>Starts the loop at the intro. Does nothing if the loop is already running.</summary>
         public void StartExperience()
         {
@@ -149,6 +184,7 @@ namespace KineticForge.Core
             _onStanceChanged = HandleStanceChanged;
             _onStanceCalibrated = HandleStanceCalibrated;
             _onChiselStrike = HandleChiselStrike;
+            _onPauseRequest = HandlePauseRequest;
         }
 
         void OnEnable()
@@ -156,6 +192,7 @@ namespace KineticForge.Core
             ForgeEvents.StanceChanged += _onStanceChanged;
             ForgeEvents.StanceCalibrated += _onStanceCalibrated;
             ForgeEvents.ChiselStrike += _onChiselStrike;
+            ForgeEvents.PauseRequestChanged += _onPauseRequest;
         }
 
         void OnDisable()
@@ -163,6 +200,10 @@ namespace KineticForge.Core
             ForgeEvents.StanceChanged -= _onStanceChanged;
             ForgeEvents.StanceCalibrated -= _onStanceCalibrated;
             ForgeEvents.ChiselStrike -= _onChiselStrike;
+            ForgeEvents.PauseRequestChanged -= _onPauseRequest;
+
+            // Never leave the game frozen or muted after this manager goes away, for example on scene unload.
+            ClearAllPauseReasons();
         }
 
         void Start()
@@ -175,7 +216,7 @@ namespace KineticForge.Core
 
         void Update()
         {
-            if (_phase == ForgePhase.None)
+            if (_phase == ForgePhase.None || _isPaused)
             {
                 return;
             }
@@ -202,6 +243,22 @@ namespace KineticForge.Core
                         RequestTransition(ForgePhase.Intro, true);
                     }
                     break;
+            }
+        }
+
+        void OnApplicationFocus(bool hasFocus)
+        {
+            if (!Application.isEditor)
+            {
+                SetPlatformPauseReason(ForgePauseReason.ApplicationFocus, !hasFocus);
+            }
+        }
+
+        void OnApplicationPause(bool pauseStatus)
+        {
+            if (!Application.isEditor)
+            {
+                SetPlatformPauseReason(ForgePauseReason.ApplicationSuspended, pauseStatus);
             }
         }
 
@@ -252,7 +309,8 @@ namespace KineticForge.Core
                     if (_stepElapsed >= _calibrationTimeout)
                     {
                         ForgeLog.Warn(ForgeLogChannel.Core, LogSource, "CALIBRATION_TIMEOUT",
-                            "No StanceCalibrated event arrived within " + _calibrationTimeout.ToString("0.#") + " s. " +
+                            "No StanceCalibrated event arrived within " +
+                            _calibrationTimeout.ToString("0.#", CultureInfo.InvariantCulture) + " s. " +
                             "Check that a StanceTracker is active. Continuing with its current stance references.", this);
                         SetCalibrationStep(CalibrationStep.AwaitingBrace);
                     }
@@ -310,7 +368,7 @@ namespace KineticForge.Core
 
         void HandleStanceCalibrated(StanceCalibratedEvent payload)
         {
-            if (_phase != ForgePhase.Calibration || _calibrationStep != CalibrationStep.SamplingNeutral)
+            if (_phase != ForgePhase.Calibration || _calibrationStep != CalibrationStep.SamplingNeutral || _isPaused)
             {
                 return;
             }
@@ -326,7 +384,7 @@ namespace KineticForge.Core
 
         void HandleChiselStrike(ChiselStrikeEvent payload)
         {
-            if (_phase != ForgePhase.FirstRelicForging || payload.Precision < _minStrikePrecision)
+            if (_phase != ForgePhase.FirstRelicForging || _isPaused || !(payload.Precision >= _minStrikePrecision))
             {
                 return;
             }
@@ -337,6 +395,115 @@ namespace KineticForge.Core
             if (_qualifiedStrikes >= _requiredStrikes)
             {
                 RequestTransition(ForgePhase.Completion, false);
+            }
+        }
+
+        void HandlePauseRequest(PauseRequestEvent payload)
+        {
+            // Manual pauses always apply; platform reasons follow the focus-loss setting. A combined request does both.
+            ForgePauseReason manual = payload.Reason & ForgePauseReason.Manual;
+            if (manual != ForgePauseReason.None)
+            {
+                SetPauseReason(manual, payload.IsActive);
+            }
+
+            ForgePauseReason platform = payload.Reason & ~ForgePauseReason.Manual;
+            if (platform != ForgePauseReason.None)
+            {
+                SetPlatformPauseReason(platform, payload.IsActive);
+            }
+        }
+
+        #endregion
+
+        #region Pause
+
+        void SetPlatformPauseReason(ForgePauseReason reason, bool active)
+        {
+            // Platform reasons are honored only when enabled, but may always be cleared.
+            if (active && !_pauseOnFocusLoss)
+            {
+                return;
+            }
+
+            SetPauseReason(reason, active);
+        }
+
+        void SetPauseReason(ForgePauseReason reason, bool active)
+        {
+            ForgePauseReason next = active ? _pauseReasons | reason : _pauseReasons & ~reason;
+            if (next == _pauseReasons)
+            {
+                return;
+            }
+
+            _pauseReasons = next;
+            bool paused = next != ForgePauseReason.None;
+            if (paused != _isPaused)
+            {
+                _isPaused = paused;
+                ApplyPauseSideEffects(paused);
+                ForgeLog.Info(ForgeLogChannel.Core, LogSource, paused ? "PAUSED" : "RESUMED", "Reasons: " + next, this);
+
+                // Poses sampled while the system menu is open are not standing poses. Rewind to the lead-in so the
+                // player is prompted again and a fresh calibration is requested on resume.
+                if (paused && _phase == ForgePhase.Calibration && _calibrationStep == CalibrationStep.SamplingNeutral)
+                {
+                    SetCalibrationStep(CalibrationStep.LeadIn);
+                }
+            }
+
+            ForgeEvents.RaiseExperiencePauseChanged(new ExperiencePauseEvent(paused, next));
+        }
+
+        void ClearAllPauseReasons()
+        {
+            if (_pauseReasons == ForgePauseReason.None)
+            {
+                return;
+            }
+
+            _pauseReasons = ForgePauseReason.None;
+            _isPaused = false;
+            ApplyPauseSideEffects(false);
+            ForgeEvents.RaiseExperiencePauseChanged(new ExperiencePauseEvent(false, ForgePauseReason.None));
+        }
+
+        void ApplyPauseSideEffects(bool paused)
+        {
+            if (paused)
+            {
+                if (_freezeTimeWhilePaused && !_ownsTimeScale)
+                {
+                    _timeScaleBeforePause = Time.timeScale;
+                    Time.timeScale = 0f;
+                    _ownsTimeScale = true;
+                }
+
+                if (_pauseAudioWhilePaused && !_ownsAudioPause)
+                {
+                    AudioListener.pause = true;
+                    _ownsAudioPause = true;
+                }
+
+                return;
+            }
+
+            if (_ownsTimeScale)
+            {
+                // Restore only if nobody else changed the scale while paused.
+                if (Time.timeScale == 0f)
+                {
+                    Time.timeScale = _timeScaleBeforePause;
+                }
+
+                _ownsTimeScale = false;
+            }
+
+            if (_ownsAudioPause)
+            {
+                AudioListener.pause = false;
+                _ownsAudioPause = false;
             }
         }
 

@@ -1,0 +1,14 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!1045 &1
+EditorBuildSettings:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Scenes:
+  - enabled: 1
+    path: Assets/KineticForge/Scenes/Sandbox.unity
+    guid: a7022c35e520ab7aeb98283a3567c69d
+  m_configObjects:
+    Unity.XR.Oculus.Settings: {fileID: 11400000, guid: ea711a9058db4dd0f9b64a00dc483f31, type: 2}
+    com.unity.xr.management.loader_settings: {fileID: 11400000, guid: c1d097c80d1b0ae848d6b4ee9a687a63, type: 2}
+  m_UseUCBPForAssetBundles: 0

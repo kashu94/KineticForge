@@ -39,6 +39,24 @@ namespace KineticForge.Core
     }
 
     /// <summary>
+    /// Device that produced a micro-gesture, so feedback and tuning can tell hand tracking from fallbacks.
+    /// </summary>
+    public enum MicroGestureSource : byte
+    {
+        /// <summary>Unknown or scripted.</summary>
+        None = 0,
+
+        /// <summary>Tracked hand: thumb sliding on the index finger, or Meta's thumb-tap microgesture.</summary>
+        HandTracking = 1,
+
+        /// <summary>Touch controller: thumbstick for slides, face button for taps.</summary>
+        Controller = 2,
+
+        /// <summary>Editor mouse fallback: right button drag for slides, left click for taps.</summary>
+        EditorMouse = 3,
+    }
+
+    /// <summary>
     /// Top-level phases of the first-session game loop driven by <see cref="ForgeGameManager"/>.
     /// </summary>
     public enum ForgePhase : byte
@@ -77,6 +95,31 @@ namespace KineticForge.Core
         AwaitingBrace = 3,
     }
 
+    /// <summary>
+    /// Reasons the experience can be paused. Several can be active at once; the experience resumes when none remain.
+    /// </summary>
+    [Flags]
+    public enum ForgePauseReason : byte
+    {
+        /// <summary>No pause reason.</summary>
+        None = 0,
+
+        /// <summary>The application lost operating-system focus.</summary>
+        ApplicationFocus = 1 << 0,
+
+        /// <summary>The XR runtime took input focus, for example when the Quest system menu opens.</summary>
+        InputFocus = 1 << 1,
+
+        /// <summary>The player took the headset off.</summary>
+        HeadsetRemoved = 1 << 2,
+
+        /// <summary>Paused from code, a debug panel or an in-game menu.</summary>
+        Manual = 1 << 3,
+
+        /// <summary>The operating system suspended the application, for example when it moved to the background.</summary>
+        ApplicationSuspended = 1 << 4,
+    }
+
     #endregion
 
     #region Event payloads
@@ -98,17 +141,39 @@ namespace KineticForge.Core
         /// <summary>True while the editor keyboard emulation is above the sensor value and therefore drives it.</summary>
         public readonly bool IsEmulated;
 
+        /// <summary>
+        /// Unsmoothed grounding factor of the latest sensor evaluation in [0, 1]: crouch, lean and stance width.
+        /// Lets feedback show why the stance is or is not stable.
+        /// </summary>
+        public readonly float Grounding;
+
+        /// <summary>
+        /// Unsmoothed balance factor of the latest sensor evaluation in [0, 1]: center of mass over the feet, times
+        /// steadiness. Low values mean the player is swaying or off balance.
+        /// </summary>
+        public readonly float Balance;
+
         /// <summary>Creates a stance change payload.</summary>
         /// <param name="stability">Smoothed stability in [0, 1].</param>
         /// <param name="previousStability">Previously broadcast stability.</param>
         /// <param name="source">Active sensing tier.</param>
         /// <param name="isEmulated">Whether keyboard emulation dominates the value.</param>
-        public StanceChangedEvent(float stability, float previousStability, StanceTrackingSource source, bool isEmulated)
+        /// <param name="grounding">Latest sensor grounding factor in [0, 1].</param>
+        /// <param name="balance">Latest sensor balance factor in [0, 1].</param>
+        public StanceChangedEvent(
+            float stability,
+            float previousStability,
+            StanceTrackingSource source,
+            bool isEmulated,
+            float grounding,
+            float balance)
         {
             Stability = stability;
             PreviousStability = previousStability;
             Source = source;
             IsEmulated = isEmulated;
+            Grounding = grounding;
+            Balance = balance;
         }
 
         /// <summary>Signed change since the previous broadcast.</summary>
@@ -116,7 +181,7 @@ namespace KineticForge.Core
     }
 
     /// <summary>
-    /// Payload of <see cref="ForgeEvents.StanceCalibrated"/>. Heights are metres along tracking-space up.
+    /// Payload of <see cref="ForgeEvents.StanceCalibrated"/>. Heights are meters along tracking-space up.
     /// </summary>
     public readonly struct StanceCalibratedEvent
     {
@@ -138,9 +203,9 @@ namespace KineticForge.Core
         /// <summary>Creates a calibration payload.</summary>
         /// <param name="source">Sensing tier active when calibration finished.</param>
         /// <param name="headSampled">Whether head samples were captured.</param>
-        /// <param name="standingHeadHeight">Averaged standing head height in metres.</param>
+        /// <param name="standingHeadHeight">Averaged standing head height in meters.</param>
         /// <param name="hipsSampled">Whether hip samples were captured.</param>
-        /// <param name="standingHipHeight">Averaged standing hip height in metres.</param>
+        /// <param name="standingHipHeight">Averaged standing hip height in meters.</param>
         public StanceCalibratedEvent(
             StanceTrackingSource source,
             bool headSampled,
@@ -194,8 +259,9 @@ namespace KineticForge.Core
         public readonly ForgeHand Hand;
 
         /// <summary>
-        /// Thumb displacement this frame, normalized to index finger length.
-        /// X runs across the finger (positive toward the thumb side), Y runs along it (positive toward the tip).
+        /// Thumb displacement this frame, normalized to index finger length. X runs across the side of the finger
+        /// (positive toward the back of the hand), Y runs along it (positive toward the tip). Controller and mouse
+        /// fallbacks map their right and up to +X and +Y.
         /// </summary>
         public readonly Vector2 SlideDelta;
 
@@ -205,21 +271,58 @@ namespace KineticForge.Core
         /// <summary>Seconds covered by <see cref="SlideDelta"/>.</summary>
         public readonly float DeltaTime;
 
+        /// <summary>Device that produced the slide.</summary>
+        public readonly MicroGestureSource Source;
+
         /// <summary>Creates a micro-gesture slide payload.</summary>
         /// <param name="hand">Hand performing the slide.</param>
         /// <param name="slideDelta">Normalized thumb displacement this frame.</param>
         /// <param name="contactStrength">Contact strength in [0, 1].</param>
         /// <param name="deltaTime">Seconds covered by the displacement.</param>
-        public MicroGestureSlideEvent(ForgeHand hand, Vector2 slideDelta, float contactStrength, float deltaTime)
+        /// <param name="source">Device that produced the slide.</param>
+        public MicroGestureSlideEvent(
+            ForgeHand hand,
+            Vector2 slideDelta,
+            float contactStrength,
+            float deltaTime,
+            MicroGestureSource source = MicroGestureSource.None)
         {
             Hand = hand;
             SlideDelta = slideDelta;
             ContactStrength = contactStrength;
             DeltaTime = deltaTime;
+            Source = source;
         }
 
         /// <summary>Slide velocity in finger lengths per second, or zero when <see cref="DeltaTime"/> is not positive.</summary>
         public Vector2 Velocity => DeltaTime > 0f ? SlideDelta / DeltaTime : Vector2.zero;
+    }
+
+    /// <summary>
+    /// Payload of <see cref="ForgeEvents.MicroGestureTap"/>: a discrete strike gesture, such as Meta's thumb tap on the side
+    /// of the index finger.
+    /// </summary>
+    public readonly struct MicroGestureTapEvent
+    {
+        /// <summary>Hand that tapped.</summary>
+        public readonly ForgeHand Hand;
+
+        /// <summary>Tap strength in [0, 1]. Gestures without an analog strength report 1.</summary>
+        public readonly float Strength;
+
+        /// <summary>Device that produced the tap.</summary>
+        public readonly MicroGestureSource Source;
+
+        /// <summary>Creates a tap payload.</summary>
+        /// <param name="hand">Hand that tapped.</param>
+        /// <param name="strength">Tap strength in [0, 1].</param>
+        /// <param name="source">Device that produced the tap.</param>
+        public MicroGestureTapEvent(ForgeHand hand, float strength, MicroGestureSource source)
+        {
+            Hand = hand;
+            Strength = strength;
+            Source = source;
+        }
     }
 
     /// <summary>
@@ -317,6 +420,48 @@ namespace KineticForge.Core
         public bool IsComplete => QualifiedStrikes >= RequiredStrikes;
     }
 
+    /// <summary>
+    /// Payload of <see cref="ForgeEvents.PauseRequestChanged"/>: one pause reason started or ended.
+    /// </summary>
+    public readonly struct PauseRequestEvent
+    {
+        /// <summary>The reason that changed. Usually a single flag.</summary>
+        public readonly ForgePauseReason Reason;
+
+        /// <summary>True when the reason became active, false when it cleared.</summary>
+        public readonly bool IsActive;
+
+        /// <summary>Creates a pause request payload.</summary>
+        /// <param name="reason">The reason that changed.</param>
+        /// <param name="isActive">Whether the reason became active.</param>
+        public PauseRequestEvent(ForgePauseReason reason, bool isActive)
+        {
+            Reason = reason;
+            IsActive = isActive;
+        }
+    }
+
+    /// <summary>
+    /// Payload of <see cref="ForgeEvents.ExperiencePauseChanged"/>: the experience paused or resumed.
+    /// </summary>
+    public readonly struct ExperiencePauseEvent
+    {
+        /// <summary>True while the experience is paused.</summary>
+        public readonly bool IsPaused;
+
+        /// <summary>Every pause reason active after the change. <see cref="ForgePauseReason.None"/> once resumed.</summary>
+        public readonly ForgePauseReason Reasons;
+
+        /// <summary>Creates a pause state payload.</summary>
+        /// <param name="isPaused">Whether the experience is paused.</param>
+        /// <param name="reasons">Active pause reasons.</param>
+        public ExperiencePauseEvent(bool isPaused, ForgePauseReason reasons)
+        {
+            IsPaused = isPaused;
+            Reasons = reasons;
+        }
+    }
+
     #endregion
 
     /// <summary>
@@ -326,6 +471,11 @@ namespace KineticForge.Core
     /// <para>
     /// Payloads are readonly structs delivered through <see cref="Action{T}"/>, so raising an event never allocates.
     /// Raise and handle events on the Unity main thread only.
+    /// </para>
+    /// <para>
+    /// Each event is backed by a <see cref="ForgeSignal{T}"/>. A handler that throws is logged and skipped, and the other
+    /// handlers still run, so a faulty listener cannot break the game flow. Handlers may subscribe and unsubscribe while an
+    /// event is being raised.
     /// </para>
     /// <para>
     /// Subscribers should subscribe in <c>OnEnable</c> and unsubscribe in <c>OnDisable</c>, caching the delegate in a field
@@ -338,80 +488,192 @@ namespace KineticForge.Core
     /// </remarks>
     public static class ForgeEvents
     {
+        static readonly ForgeSignal<StanceChangedEvent> s_stanceChanged =
+            new ForgeSignal<StanceChangedEvent>("ForgeEvents.StanceChanged");
+
+        static readonly ForgeSignal s_calibrationRequested = new ForgeSignal("ForgeEvents.CalibrationRequested");
+
+        static readonly ForgeSignal<StanceCalibratedEvent> s_stanceCalibrated =
+            new ForgeSignal<StanceCalibratedEvent>("ForgeEvents.StanceCalibrated");
+
+        static readonly ForgeSignal<CalibrationStep> s_calibrationStepChanged =
+            new ForgeSignal<CalibrationStep>("ForgeEvents.CalibrationStepChanged");
+
+        static readonly ForgeSignal<RelicGrabEvent> s_relicGrabChanged =
+            new ForgeSignal<RelicGrabEvent>("ForgeEvents.RelicGrabChanged");
+
+        static readonly ForgeSignal<MicroGestureSlideEvent> s_microGestureSlide =
+            new ForgeSignal<MicroGestureSlideEvent>("ForgeEvents.MicroGestureSlide");
+
+        static readonly ForgeSignal<MicroGestureTapEvent> s_microGestureTap =
+            new ForgeSignal<MicroGestureTapEvent>("ForgeEvents.MicroGestureTap");
+
+        static readonly ForgeSignal<ChiselStrikeEvent> s_chiselStrike =
+            new ForgeSignal<ChiselStrikeEvent>("ForgeEvents.ChiselStrike");
+
+        static readonly ForgeSignal<GamePhaseChangedEvent> s_gamePhaseChanged =
+            new ForgeSignal<GamePhaseChangedEvent>("ForgeEvents.GamePhaseChanged");
+
+        static readonly ForgeSignal<ForgeProgressEvent> s_forgeProgressChanged =
+            new ForgeSignal<ForgeProgressEvent>("ForgeEvents.ForgeProgressChanged");
+
+        static readonly ForgeSignal<PauseRequestEvent> s_pauseRequestChanged =
+            new ForgeSignal<PauseRequestEvent>("ForgeEvents.PauseRequestChanged");
+
+        static readonly ForgeSignal<ExperiencePauseEvent> s_experiencePauseChanged =
+            new ForgeSignal<ExperiencePauseEvent>("ForgeEvents.ExperiencePauseChanged");
+
         /// <summary>Raised when stance stability moves by more than the tracker's change threshold.</summary>
-        public static event Action<StanceChangedEvent> StanceChanged;
+        public static event Action<StanceChangedEvent> StanceChanged
+        {
+            add => s_stanceChanged.Add(value);
+            remove => s_stanceChanged.Remove(value);
+        }
 
         /// <summary>Raised by the game flow to ask the stance tracker to capture the standing reference pose.</summary>
-        public static event Action CalibrationRequested;
+        public static event Action CalibrationRequested
+        {
+            add => s_calibrationRequested.Add(value);
+            remove => s_calibrationRequested.Remove(value);
+        }
 
         /// <summary>Raised by the stance tracker when it has captured the standing reference pose.</summary>
-        public static event Action<StanceCalibratedEvent> StanceCalibrated;
+        public static event Action<StanceCalibratedEvent> StanceCalibrated
+        {
+            add => s_stanceCalibrated.Add(value);
+            remove => s_stanceCalibrated.Remove(value);
+        }
 
         /// <summary>Raised when the calibration sub-step changes, including the reset to <see cref="CalibrationStep.None"/>.</summary>
-        public static event Action<CalibrationStep> CalibrationStepChanged;
+        public static event Action<CalibrationStep> CalibrationStepChanged
+        {
+            add => s_calibrationStepChanged.Add(value);
+            remove => s_calibrationStepChanged.Remove(value);
+        }
 
         /// <summary>Raised when a hand grabs or releases a relic.</summary>
-        public static event Action<RelicGrabEvent> RelicGrabChanged;
+        public static event Action<RelicGrabEvent> RelicGrabChanged
+        {
+            add => s_relicGrabChanged.Add(value);
+            remove => s_relicGrabChanged.Remove(value);
+        }
 
         /// <summary>Raised each frame a thumb slides across the index finger while in contact.</summary>
-        public static event Action<MicroGestureSlideEvent> MicroGestureSlide;
+        public static event Action<MicroGestureSlideEvent> MicroGestureSlide
+        {
+            add => s_microGestureSlide.Add(value);
+            remove => s_microGestureSlide.Remove(value);
+        }
+
+        /// <summary>Raised when a hand performs a discrete tap gesture, the trigger for a chisel strike.</summary>
+        public static event Action<MicroGestureTapEvent> MicroGestureTap
+        {
+            add => s_microGestureTap.Add(value);
+            remove => s_microGestureTap.Remove(value);
+        }
 
         /// <summary>Raised when a chisel strike lands.</summary>
-        public static event Action<ChiselStrikeEvent> ChiselStrike;
+        public static event Action<ChiselStrikeEvent> ChiselStrike
+        {
+            add => s_chiselStrike.Add(value);
+            remove => s_chiselStrike.Remove(value);
+        }
 
         /// <summary>Raised after the game flow enters a new phase.</summary>
-        public static event Action<GamePhaseChangedEvent> GamePhaseChanged;
+        public static event Action<GamePhaseChangedEvent> GamePhaseChanged
+        {
+            add => s_gamePhaseChanged.Add(value);
+            remove => s_gamePhaseChanged.Remove(value);
+        }
 
         /// <summary>Raised when progress on the current relic changes.</summary>
-        public static event Action<ForgeProgressEvent> ForgeProgressChanged;
+        public static event Action<ForgeProgressEvent> ForgeProgressChanged
+        {
+            add => s_forgeProgressChanged.Add(value);
+            remove => s_forgeProgressChanged.Remove(value);
+        }
+
+        /// <summary>
+        /// Raised by platform monitors when a pause reason starts or ends, for example when the Quest system menu opens.
+        /// The game manager combines the reasons and publishes <see cref="ExperiencePauseChanged"/>.
+        /// </summary>
+        public static event Action<PauseRequestEvent> PauseRequestChanged
+        {
+            add => s_pauseRequestChanged.Add(value);
+            remove => s_pauseRequestChanged.Remove(value);
+        }
+
+        /// <summary>Raised by the game manager when the experience pauses or resumes.</summary>
+        public static event Action<ExperiencePauseEvent> ExperiencePauseChanged
+        {
+            add => s_experiencePauseChanged.Add(value);
+            remove => s_experiencePauseChanged.Remove(value);
+        }
 
         /// <summary>Raises <see cref="StanceChanged"/>.</summary>
         /// <param name="payload">Stance change data.</param>
-        public static void RaiseStanceChanged(in StanceChangedEvent payload) => StanceChanged?.Invoke(payload);
+        public static void RaiseStanceChanged(in StanceChangedEvent payload) => s_stanceChanged.Raise(payload);
 
         /// <summary>Raises <see cref="CalibrationRequested"/>.</summary>
-        public static void RaiseCalibrationRequested() => CalibrationRequested?.Invoke();
+        public static void RaiseCalibrationRequested() => s_calibrationRequested.Raise();
 
         /// <summary>Raises <see cref="StanceCalibrated"/>.</summary>
         /// <param name="payload">Calibration result.</param>
-        public static void RaiseStanceCalibrated(in StanceCalibratedEvent payload) => StanceCalibrated?.Invoke(payload);
+        public static void RaiseStanceCalibrated(in StanceCalibratedEvent payload) => s_stanceCalibrated.Raise(payload);
 
         /// <summary>Raises <see cref="CalibrationStepChanged"/>.</summary>
         /// <param name="step">The calibration sub-step that was entered.</param>
-        public static void RaiseCalibrationStepChanged(CalibrationStep step) => CalibrationStepChanged?.Invoke(step);
+        public static void RaiseCalibrationStepChanged(CalibrationStep step) => s_calibrationStepChanged.Raise(step);
 
         /// <summary>Raises <see cref="RelicGrabChanged"/>.</summary>
         /// <param name="payload">Grab or release data.</param>
-        public static void RaiseRelicGrabChanged(in RelicGrabEvent payload) => RelicGrabChanged?.Invoke(payload);
+        public static void RaiseRelicGrabChanged(in RelicGrabEvent payload) => s_relicGrabChanged.Raise(payload);
 
         /// <summary>Raises <see cref="MicroGestureSlide"/>.</summary>
         /// <param name="payload">Slide data.</param>
-        public static void RaiseMicroGestureSlide(in MicroGestureSlideEvent payload) => MicroGestureSlide?.Invoke(payload);
+        public static void RaiseMicroGestureSlide(in MicroGestureSlideEvent payload) => s_microGestureSlide.Raise(payload);
+
+        /// <summary>Raises <see cref="MicroGestureTap"/>.</summary>
+        /// <param name="payload">Tap data.</param>
+        public static void RaiseMicroGestureTap(in MicroGestureTapEvent payload) => s_microGestureTap.Raise(payload);
 
         /// <summary>Raises <see cref="ChiselStrike"/>.</summary>
         /// <param name="payload">Strike data.</param>
-        public static void RaiseChiselStrike(in ChiselStrikeEvent payload) => ChiselStrike?.Invoke(payload);
+        public static void RaiseChiselStrike(in ChiselStrikeEvent payload) => s_chiselStrike.Raise(payload);
 
         /// <summary>Raises <see cref="GamePhaseChanged"/>.</summary>
         /// <param name="payload">Phase transition data.</param>
-        public static void RaiseGamePhaseChanged(in GamePhaseChangedEvent payload) => GamePhaseChanged?.Invoke(payload);
+        public static void RaiseGamePhaseChanged(in GamePhaseChangedEvent payload) => s_gamePhaseChanged.Raise(payload);
 
         /// <summary>Raises <see cref="ForgeProgressChanged"/>.</summary>
         /// <param name="payload">Progress data.</param>
-        public static void RaiseForgeProgressChanged(in ForgeProgressEvent payload) => ForgeProgressChanged?.Invoke(payload);
+        public static void RaiseForgeProgressChanged(in ForgeProgressEvent payload) => s_forgeProgressChanged.Raise(payload);
 
+        /// <summary>Raises <see cref="PauseRequestChanged"/>.</summary>
+        /// <param name="payload">Pause reason change.</param>
+        public static void RaisePauseRequestChanged(in PauseRequestEvent payload) => s_pauseRequestChanged.Raise(payload);
+
+        /// <summary>Raises <see cref="ExperiencePauseChanged"/>.</summary>
+        /// <param name="payload">New pause state.</param>
+        public static void RaiseExperiencePauseChanged(in ExperiencePauseEvent payload) =>
+            s_experiencePauseChanged.Raise(payload);
+
+        /// <summary>Removes every subscriber from every event. Called automatically before each Play Mode session.</summary>
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.SubsystemRegistration)]
-        static void ResetSubscriptions()
+        public static void ResetSubscriptions()
         {
-            StanceChanged = null;
-            CalibrationRequested = null;
-            StanceCalibrated = null;
-            CalibrationStepChanged = null;
-            RelicGrabChanged = null;
-            MicroGestureSlide = null;
-            ChiselStrike = null;
-            GamePhaseChanged = null;
-            ForgeProgressChanged = null;
+            s_stanceChanged.Clear();
+            s_calibrationRequested.Clear();
+            s_stanceCalibrated.Clear();
+            s_calibrationStepChanged.Clear();
+            s_relicGrabChanged.Clear();
+            s_microGestureSlide.Clear();
+            s_microGestureTap.Clear();
+            s_chiselStrike.Clear();
+            s_gamePhaseChanged.Clear();
+            s_forgeProgressChanged.Clear();
+            s_pauseRequestChanged.Clear();
+            s_experiencePauseChanged.Clear();
         }
     }
 }
