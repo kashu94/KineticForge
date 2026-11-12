@@ -46,7 +46,13 @@ namespace KineticForge.Tests
             Assert.IsNotNull(Object.FindAnyObjectByType<RelicForgeRenderer>(), "the relic renders its forging state");
             ForgeGuide guide = Object.FindAnyObjectByType<ForgeGuide>();
             Assert.IsTrue(guide != null && guide.Text.Contains("KINETIC FORGE"), "the guide shows the intro");
-            Assert.IsNotNull(Object.FindAnyObjectByType<RelicSigil>(), "the relic has a sigil to awaken");
+            Assert.IsNull(Object.FindAnyObjectByType<RelicSigil>(), "the legacy sigil puzzle is not part of the sandbox");
+            RelicVoicing voicing = Object.FindAnyObjectByType<RelicVoicing>();
+            Assert.IsNotNull(voicing, "the relic is voiced");
+            Assert.AreEqual(VoicingStage.Dormant, voicing.Stage, "voicing waits for the forging phase");
+            VoiceTuner tuner = Object.FindAnyObjectByType<VoiceTuner>();
+            Assert.IsTrue(tuner != null && tuner.GaugeCount == VoicingMath.VoiceCount, "the tuner has a gauge per voice");
+            Assert.IsFalse(tuner.IsShown, "the tuner stays hidden until voicing starts");
             Assert.IsNotNull(Object.FindAnyObjectByType<ChladniSand>(), "the relic carries Chladni sand");
             Assert.IsNotNull(Object.FindAnyObjectByType<ResonanceWall>(), "the forge has a Resonance Wall");
             MoltenPour pour = Object.FindAnyObjectByType<MoltenPour>();

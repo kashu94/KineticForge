@@ -122,6 +122,7 @@ namespace KineticForge.Core
         Action<StanceChangedEvent> _onStanceChanged;
         Action<StanceCalibratedEvent> _onStanceCalibrated;
         Action<ChiselStrikeEvent> _onChiselStrike;
+        Action<RelicForgedEvent> _onRelicForged;
         Action<PauseRequestEvent> _onPauseRequest;
 
         #region Public API
@@ -194,6 +195,7 @@ namespace KineticForge.Core
             _onStanceChanged = HandleStanceChanged;
             _onStanceCalibrated = HandleStanceCalibrated;
             _onChiselStrike = HandleChiselStrike;
+            _onRelicForged = HandleRelicForged;
             _onPauseRequest = HandlePauseRequest;
         }
 
@@ -202,6 +204,7 @@ namespace KineticForge.Core
             ForgeEvents.StanceChanged += _onStanceChanged;
             ForgeEvents.StanceCalibrated += _onStanceCalibrated;
             ForgeEvents.ChiselStrike += _onChiselStrike;
+            ForgeEvents.RelicForged += _onRelicForged;
             ForgeEvents.PauseRequestChanged += _onPauseRequest;
         }
 
@@ -210,6 +213,7 @@ namespace KineticForge.Core
             ForgeEvents.StanceChanged -= _onStanceChanged;
             ForgeEvents.StanceCalibrated -= _onStanceCalibrated;
             ForgeEvents.ChiselStrike -= _onChiselStrike;
+            ForgeEvents.RelicForged -= _onRelicForged;
             ForgeEvents.PauseRequestChanged -= _onPauseRequest;
 
             // Never leave the game frozen or muted after this manager goes away, for example on scene unload.
@@ -401,6 +405,15 @@ namespace KineticForge.Core
             }
 
             SetCalibrationStep(CalibrationStep.AwaitingBrace);
+        }
+
+        void HandleRelicForged(RelicForgedEvent payload)
+        {
+            // A relic finished by any route, such as tuning, ends forging after the same short pause as a full rune.
+            if (_phase == ForgePhase.FirstRelicForging && _completionCountdown < 0f)
+            {
+                _completionCountdown = _completionDelay;
+            }
         }
 
         void HandleChiselStrike(ChiselStrikeEvent payload)

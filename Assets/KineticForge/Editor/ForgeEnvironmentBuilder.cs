@@ -59,6 +59,7 @@ namespace KineticForge.EditorTools
         internal const string GlowShader = "Kinetic Forge/Forge Glow";
         internal const string TextShader = "Kinetic Forge/Forge Text";
         internal const string PanelShader = "Kinetic Forge/Forge Panel";
+        internal const string GaugeShader = "Kinetic Forge/Forge Gauge";
 
         internal static readonly Color FogColor = new Color(0.035f, 0.026f, 0.022f);
 
@@ -89,6 +90,7 @@ namespace KineticForge.EditorTools
             public Material Panel;
             public Material Flame;
             public Material Coals;
+            public Material Gauge;
         }
 
         /// <summary>Creates or loads every material the forge uses.</summary>
@@ -163,6 +165,7 @@ namespace KineticForge.EditorTools
             palette.NightSky = GetOrCreate("Forge Night Sky", "Universal Render Pipeline/Unlit",
                 m => m.SetColor("_BaseColor", new Color(0.03f, 0.045f, 0.09f)));
             palette.Panel = GetOrCreate("Forge Panel", PanelShader, m => { });
+            palette.Gauge = GetOrCreate("Forge Gauge", GaugeShader, m => { });
             // Glowing coals: rough and non-metallic, so their edges never mirror the room; the oxide crust breaks up the glow.
             palette.Coals = GetOrCreate("Forge Coals", MetalShader, m =>
             {
@@ -517,12 +520,10 @@ namespace KineticForge.EditorTools
                 new Vector3(position.x, OpeningBottom + 0.02f, front + ChamberDepth * 0.5f), new Vector3(OpeningWidth - 0.12f, 0.1f, ChamberDepth - 0.08f), palette.Coals);
             Object.DestroyImmediate(coals.GetComponent<Collider>());
 
+            // Baked: the chamber's own flames already move, so a real-time light here would cost a per-pixel light on
+            // Quest for no visible gain. Real-time lights stay at four: furnace, two hearths and the relic.
             Light chamber = PointLight("Chamber Light", furnace, new Vector3(position.x, OpeningBottom + 0.3f, front + 0.12f), new Color(1f, 0.52f, 0.2f), 2.4f, 2.2f);
-            chamber.lightmapBakeType = LightmapBakeType.Mixed;
-            ForgeFlicker chamberFlicker = chamber.gameObject.AddComponent<ForgeFlicker>();
-            SetFloat(chamberFlicker, "_intensity", 2.4f);
-            SetFloat(chamberFlicker, "_flicker", 0.35f);
-            SetFloat(chamberFlicker, "_speed", 8f);
+            chamber.lightmapBakeType = LightmapBakeType.Baked;
 
             Light light = PointLight("Furnace Light", furnace, new Vector3(position.x, 0.85f, front - 0.35f), new Color(1f, 0.5f, 0.18f), 2.6f, 7f);
             light.lightmapBakeType = LightmapBakeType.Mixed;

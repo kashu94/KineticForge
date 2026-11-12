@@ -46,6 +46,7 @@ namespace KineticForge.EditorTools
         const float HoldLift = 0.22f;
         const float EditorEyeHeight = 1.45f;
         const float GuideLineHeight = 0.034f;
+        const float TunerScale = 1.2f;
         const float RelicMass = 20f;
         static readonly Vector3 RelicSize = new Vector3(0.3f, 0.3f, 0.08f);
 
@@ -177,6 +178,7 @@ namespace KineticForge.EditorTools
             CreateDiagnostics(palette);
             CreatePour(palette, systems, relic, relicPosition);
             CreateWall(palette, relic);
+            CreateTuner(palette, relic);
             CreateMixedReality(systems, forge);
 
             bool metaRig = false;
@@ -241,9 +243,11 @@ namespace KineticForge.EditorTools
             CarvingCursor cursor = relic.AddComponent<CarvingCursor>();
             ForgeEnvironmentBuilder.SetObject(cursor, "_cursorMaterial", palette.RuneGlow);
 
-            relic.AddComponent<ChiselStrikeController>();
+            // The right hand strikes and cuts; the left thumb swaps hammer and chisel (see RelicVoicing).
+            ChiselStrikeController strike = relic.AddComponent<ChiselStrikeController>();
+            SetSerializedInt(strike, "_strikingHand", (int)ForgeHand.Right);
             RelicResonance resonance = relic.AddComponent<RelicResonance>();
-            relic.AddComponent<RelicSigil>();
+            relic.AddComponent<RelicVoicing>();
             relic.AddComponent<RelicForgeRenderer>();
 
             ChladniSand sand = relic.AddComponent<ChladniSand>();
@@ -305,6 +309,25 @@ namespace KineticForge.EditorTools
             ForgeEnvironmentBuilder.SetObject(pour, "_hoist", tilt.parent);
             ForgeEnvironmentBuilder.SetObject(pour, "_lip", lip);
             ForgeEnvironmentBuilder.SetObject(pour, "_stream", stream);
+        }
+
+        /// <summary>
+        /// Adds the voice tuner low and to the left of the work, turned toward a seated eye: close enough to read at a
+        /// glance, clear of the relic, the guide and the wall.
+        /// </summary>
+        static void CreateTuner(ForgeEnvironmentBuilder.Palette palette, GameObject relic)
+        {
+            GameObject tuner = new GameObject("Voice Tuner");
+            Vector3 eye = new Vector3(0f, 1.25f, 0f);
+            Vector3 position = new Vector3(-0.6f, 1.0f, 0.95f);
+            tuner.transform.SetPositionAndRotation(position, Quaternion.LookRotation(position - eye, Vector3.up));
+            tuner.transform.localScale = Vector3.one * TunerScale;
+            VoiceTuner voiceTuner = tuner.AddComponent<VoiceTuner>();
+            ForgeEnvironmentBuilder.SetObject(voiceTuner, "_voicing", relic.GetComponent<RelicVoicing>());
+            ForgeEnvironmentBuilder.SetObject(voiceTuner, "_panelMaterial", palette.Panel);
+            ForgeEnvironmentBuilder.SetObject(voiceTuner, "_gaugeMaterial", palette.Gauge);
+            ForgeEnvironmentBuilder.SetObject(voiceTuner, "_titleFont", ForgeTypography.DisplayFont());
+            ForgeEnvironmentBuilder.SetObject(voiceTuner, "_textFont", ForgeTypography.TextFont());
         }
 
         static void CreateWall(ForgeEnvironmentBuilder.Palette palette, GameObject relic)

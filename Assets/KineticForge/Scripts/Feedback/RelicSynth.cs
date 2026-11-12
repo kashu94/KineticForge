@@ -41,6 +41,9 @@ namespace KineticForge.Feedback
         internal static readonly float[] s_gains = { 0.35f, 0.5f, 0.3f, 0.28f, 0.32f, 0.18f, 0.14f, 0.1f };
         static readonly int[] s_plateMode = { 0, 0, 1, 1, 2, 2, 3, 3 };
 
+        // The partial each voice (plate mode) owns. Voicing tunes these; the other partials keep the bell's color.
+        static readonly int[] s_primary = { 1, 3, 4, 7 };
+
         [SerializeField, Tooltip("Relic whose strikes this synth plays. Uses this object's Rigidbody when empty.")]
         Rigidbody _relic = null;
 
@@ -71,6 +74,13 @@ namespace KineticForge.Feedback
         readonly float[] _rotCos = new float[ModeCount];
         readonly float[] _rotSin = new float[ModeCount];
         readonly float[] _decay = new float[ModeCount];
+
+        // Tuning fork: one reference tone per voice at its target pitch, ringing beside the relic's own voice.
+        readonly float[] _forkRe = new float[VoicingMath.VoiceCount];
+        readonly float[] _forkIm = new float[VoicingMath.VoiceCount];
+        readonly float[] _forkCos = new float[VoicingMath.VoiceCount];
+        readonly float[] _forkSin = new float[VoicingMath.VoiceCount];
+        readonly float[] _forkDecay = new float[VoicingMath.VoiceCount];
         float _humRe = 1f;
         float _humIm;
         float _hum;
@@ -85,6 +95,10 @@ namespace KineticForge.Feedback
         readonly float[] _queueStrength = new float[QueueSize];
         readonly Vector4[] _queueExcitation = new Vector4[QueueSize];
         int _queueWrite;
+        readonly float[] _voiceCents = new float[VoicingMath.VoiceCount];
+        readonly float[] _forkCents = new float[VoicingMath.VoiceCount];
+        volatile bool _voiced;
+        volatile bool _forkOn;
         volatile float _heat;
         volatile float _humTarget;
         volatile float _fundamental;
@@ -100,6 +114,7 @@ namespace KineticForge.Feedback
         // Main thread state.
         RelicResonance _resonance;
         RelicSigil _sigil;
+        RelicVoicing _voicing;
         AudioSource _source;
         AudioClip _carrier;
         Action<RelicResonanceEvent> _onResonated;
@@ -150,6 +165,7 @@ namespace KineticForge.Feedback
             _source = GetComponent<AudioSource>();
             _resonance = GetComponent<RelicResonance>();
             _sigil = GetComponent<RelicSigil>();
+            _voicing = GetComponent<RelicVoicing>();
             if (_relic == null)
             {
                 _relic = GetComponent<Rigidbody>();
@@ -213,8 +229,18 @@ namespace KineticForge.Feedback
 
             _heat = _resonance.Heat;
 
-            // Each sigil rings in its own note; a finished relic rings as in tune as it was carved.
-            if (_sigil != null && _sigil.Stage != SigilStage.Dormant)
+            SyncVoices();
+
+            // A voiced relic rings its commission's root; its errors are in the voices themselves.
+            if (_voicing != null && _voicing.Stage != VoicingStage.Dormant)
+            {
+                float root = _voicing.Commission.RootHz;
+                if (!Mathf.Approximately(root, _fundamental) || _detune != 0f)
+                {
+                    Tune(root, 0f);
+                }
+            }
+            else if (_sigil != null && _sigil.Stage != SigilStage.Dormant)
             {
                 float note = _sigil.Sigil.Note;
                 float detune = _resonance.IsForged ? Mathf.Clamp01(1f - _resonance.MeanQuality) * 40f : 0f;
@@ -228,6 +254,38 @@ namespace KineticForge.Feedback
             _humTarget = _humVolume * Mathf.Clamp01(_resonance.Charge / 1.2f) * swell;
         }
 
+        /// <summary>
+        /// Copies the voicing's current pitches to the audio thread. Also called when a strike arrives, so a cut and the
+        /// ring it causes always sound together.
+        /// </summary>
+        void SyncVoices()
+        {
+            if (_voicing == null || _voicing.Stage == VoicingStage.Dormant)
+            {
+                _voiced = false;
+                _forkOn = false;
+                return;
+            }
+
+            for (int m = 0; m < VoicingMath.VoiceCount; m++)
+            {
+                _voiceCents[m] = _voicing.VoiceCents(m);
+                _forkCents[m] = _voicing.TargetCents(m);
+            }
+
+            _voiced = true;
+            _forkOn = _voicing.Stage == VoicingStage.Voicing || _voicing.Stage == VoicingStage.Settling;
+        }
+
+        void Start()
+        {
+            // A voicing component added after this one woke is found here.
+            if (_voicing == null)
+            {
+                _voicing = GetComponent<RelicVoicing>();
+            }
+        }
+
         void HandleResonated(RelicResonanceEvent payload)
         {
             if (!ReferenceEquals(payload.Relic, _relic))
@@ -235,6 +293,7 @@ namespace KineticForge.Feedback
                 return;
             }
 
+            SyncVoices();
             Play(payload.Strength, payload.ModeExcitation);
             if (payload.Cracked)
             {
@@ -260,6 +319,7 @@ namespace KineticForge.Feedback
             float dampingScale = 1f + _hotDamping * heat * heat;
             float fundamental = _fundamental;
             float detune = Mathf.Pow(2f, _detune / 1200f);
+            bool voiced = _voiced;
             for (int k = 0; k < ModeCount; k++)
             {
                 float ratio = (k & 1) == 1 ? s_ratios[k] * detune : s_ratios[k];
@@ -267,6 +327,25 @@ namespace KineticForge.Feedback
                 _rotCos[k] = Mathf.Cos(omega);
                 _rotSin[k] = Mathf.Sin(omega);
                 _decay[k] = Mathf.Exp(-dampingScale / (s_decays[k] * _sampleRate));
+            }
+
+            for (int m = 0; m < VoicingMath.VoiceCount; m++)
+            {
+                int k = s_primary[m];
+                float baseRatio = s_ratios[k];
+
+                // The relic's voice rings at its natural partial shifted by its tuning; the fork rings at the target.
+                if (voiced)
+                {
+                    float omegaVoice = 2f * Mathf.PI * fundamental * baseRatio * Mathf.Pow(2f, _voiceCents[m] / 1200f) * pitch / _sampleRate;
+                    _rotCos[k] = Mathf.Cos(omegaVoice);
+                    _rotSin[k] = Mathf.Sin(omegaVoice);
+                }
+
+                float omegaFork = 2f * Mathf.PI * fundamental * baseRatio * Mathf.Pow(2f, _forkCents[m] / 1200f) * pitch / _sampleRate;
+                _forkCos[m] = Mathf.Cos(omegaFork);
+                _forkSin[m] = Mathf.Sin(omegaFork);
+                _forkDecay[m] = _decay[k];
             }
         }
 
@@ -328,6 +407,16 @@ namespace KineticForge.Feedback
                     sample += _im[k];
                 }
 
+                for (int m = 0; m < VoicingMath.VoiceCount; m++)
+                {
+                    float fr = _forkRe[m];
+                    float fi = _forkIm[m];
+                    float fd = _forkDecay[m];
+                    _forkRe[m] = (fr * _forkCos[m] - fi * _forkSin[m]) * fd;
+                    _forkIm[m] = (fr * _forkSin[m] + fi * _forkCos[m]) * fd;
+                    sample += _forkIm[m];
+                }
+
                 _hum += (humTarget - _hum) * 0.0005f;
                 float hr = _humRe;
                 _humRe = hr * humCos - _humIm * humSin;
@@ -373,6 +462,16 @@ namespace KineticForge.Feedback
                     // An impulse starts each partial at zero phase: added to the real part, it rings out as a sine.
                     float amount = s_gains[k] * strength * (0.3f + 0.7f * Mathf.Clamp01(excitation[s_plateMode[k]]));
                     _re[k] = Mathf.Clamp(_re[k] + amount, -1.5f, 1.5f);
+                }
+
+                if (_forkOn)
+                {
+                    // The fork answers with each voice's target pitch, as loud as the voice it checks.
+                    for (int m = 0; m < VoicingMath.VoiceCount; m++)
+                    {
+                        float amount = s_gains[s_primary[m]] * strength * (0.3f + 0.7f * Mathf.Clamp01(excitation[m]));
+                        _forkRe[m] = Mathf.Clamp(_forkRe[m] + amount, -1.5f, 1.5f);
+                    }
                 }
 
                 _clickEnvelope = Mathf.Max(_clickEnvelope, strength);

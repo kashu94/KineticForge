@@ -34,6 +34,10 @@ namespace KineticForge.Feedback
         public const string TitleFont = "Cinzel SDF";
 
         const float TextScaleFactor = 0.1f;
+        const int StageCount = 4;
+
+        /// <summary>Strikes the relic takes before the first lesson gives way to the tuning lesson.</summary>
+        const int VoicingRingStrikes = 3;
 
         [SerializeField, Tooltip("Game flow to follow. Found in the scene when empty.")]
         ForgeGameManager _game = null;
@@ -65,6 +69,7 @@ namespace KineticForge.Feedback
         float _sigilSetTime = -100f;
         float _quenchedTime = -100f;
         RelicSigil _sigil;
+        RelicVoicing _voicing;
         RelicQuench _quench;
         Action _onSigilSet;
         Action _onQuenched;
@@ -125,6 +130,7 @@ namespace KineticForge.Feedback
 
             if (_relic != null)
             {
+                _voicing = _relic.GetComponent<RelicVoicing>();
                 _sigil = _relic.GetComponent<RelicSigil>();
                 _quench = _relic.GetComponent<RelicQuench>();
                 if (_sigil != null)
@@ -195,6 +201,16 @@ namespace KineticForge.Feedback
 
                 key = key * 31 + Mathf.Min(_carveStrikes, _lessonStrikes + 1);
                 key = key * 31 + Mathf.Min(_strikes, 1);
+                if (_voicing != null)
+                {
+                    // The voicing steps: pour, ring, tune, settle, spent.
+                    key = key * 31 + (int)_voicing.Stage;
+                    key = key * 31 + (_voicing.Suspended ? 1 : 0);
+                    key = key * 31 + (_strikes >= VoicingRingStrikes ? 1 : 0);
+                    key = key * 31 + (_voicing.CutsUsed > 0 ? 1 : 0);
+                    key = key * 31 + (_voicing.IsSpent ? 1 : 0);
+                }
+
                 if (_sigil != null)
                 {
                     key = key * 31 + (int)_sigil.Stage;
@@ -289,6 +305,18 @@ namespace KineticForge.Feedback
 
                 key = key * 31 + Mathf.Min(_carveStrikes, _lessonStrikes + 1);
                 key = key * 31 + Mathf.Min(_strikes, 1);
+                if (_voicing != null)
+                {
+                    key = key * 31 + (int)_voicing.Stage;
+                    key = key * 31 + (int)_voicing.Tool;
+                    key = key * 31 + (_voicing.Suspended ? 1 : 0);
+                    key = key * 31 + Mathf.Min(_strikes, VoicingRingStrikes);
+                    key = key * 31 + Mathf.Min(_voicing.CutsUsed, 2);
+                    key = key * 31 + (_voicing.HintActive ? 1 : 0);
+                    key = key * 31 + (_voicing.IsSpent ? 1 : 0);
+                    key = key * 31 + VoiceStateMask();
+                }
+
                 if (_sigil != null)
                 {
                     key = key * 31 + (int)_sigil.Stage;
@@ -331,10 +359,6 @@ namespace KineticForge.Feedback
                 case ForgePhase.Intro:
                     Title(b, "KINETIC FORGE");
                     b.Append("\nThe relic rings with every strike.\nYour body is its anchor.");
-                    if (hands)
-                    {
-                        b.Append("\n\n<size=").Append(ScaledSize(0.75f)).Append("><color=#9fc8e0>Pinch with both hands to forge in your room</color></size>");
-                    }
                     break;
 
                 case ForgePhase.Calibration:
@@ -389,6 +413,12 @@ namespace KineticForge.Feedback
                 return;
             }
 
+            if (_voicing != null && _voicing.Stage != VoicingStage.Dormant && _voicing.Stage != VoicingStage.Done)
+            {
+                BuildVoicing(b, hands);
+                return;
+            }
+
             if (_sigil != null && _sigil.Stage == SigilStage.Awakening)
             {
                 BuildAwakening(b, hands);
@@ -397,6 +427,7 @@ namespace KineticForge.Feedback
 
             if (_sigil != null && Time.time - _sigilSetTime < 3f)
             {
+                Step(b, 1);
                 Title(b, "SIGIL SET: " + _sigil.Sigil.Name.ToUpperInvariant());
                 b.Append("\nThe relic remembers its figure.\nCarve the rune along the sand.");
                 return;
@@ -404,6 +435,7 @@ namespace KineticForge.Feedback
 
             if (_carveStrikes == 0)
             {
+                Step(b, 2);
                 Title(b, "CARVE THE RUNE");
                 b.Append(hands
                     ? "\n<b>Point</b> at the glowing mark.\n<b>Pinch</b> to strike - or tap thumb to index finger."
@@ -413,6 +445,7 @@ namespace KineticForge.Feedback
 
             if (_carveStrikes <= _lessonStrikes)
             {
+                Step(b, 2);
                 Title(b, "RIDE THE PULSE");
                 b.Append("\nThe relic has a heartbeat.\nStrike as the ring <color=#ffc860>closes and turns gold</color>:\nin rhythm, it charges and carves deeper.");
                 AppendStatus(b);
@@ -435,6 +468,119 @@ namespace KineticForge.Feedback
             AppendStatus(b);
         }
 
+        /// <summary>The steps of voicing: the pour, ringing the relic, tuning it, settling, and a spent relic.</summary>
+        void BuildVoicing(StringBuilder b, bool hands)
+        {
+            if (_voicing.Suspended)
+            {
+                Title(b, "THE POUR");
+                b.Append("\nMolten bronze fills the mold.");
+                return;
+            }
+
+            VoicingCommission commission = _voicing.Commission;
+            if (_voicing.Stage == VoicingStage.Settling)
+            {
+                if (_voicing.IsSpent)
+                {
+                    b.Append("<color=#ff7a6a><b>THE METAL IS SPENT</b></color>\nThe relic is finished as it stands.");
+                }
+                else
+                {
+                    b.Append("<color=#8dffa6><b>IN TUNE</b></color>\nHold still: it rings true.\nCut again to refine it.");
+                }
+
+                return;
+            }
+
+            if (_voicing.CutsUsed == 0 && _strikes < VoicingRingStrikes)
+            {
+                Step(b, 1);
+                Title(b, "RING THE RELIC");
+                b.Append("\n").Append(commission.ChordName).Append(" in ").Append(commission.RootName)
+                    .Append(": four voices, all ringing sharp.\nStrike it. Every spot rings different voices.")
+                    .Append(hands ? "\n<b>Point</b> and <b>pinch</b>: watch the tuner and the sand." : "\n<b>Right-drag</b> to aim, <b>left-click</b> to strike.");
+                return;
+            }
+
+            Step(b, 2);
+            Title(b, "TUNE THE VOICES");
+            if (_voicing.CutsUsed == 0)
+            {
+                b.Append("\nCutting lowers pitch where the metal moves most:\nthe <b>bare patches</b>, never the sand.");
+            }
+            else
+            {
+                AppendVoiceStates(b, commission);
+            }
+
+            if (_voicing.Tool == VoicingTool.Hammer)
+            {
+                b.Append(hands ? "\n<color=#ffb060>Tap your left thumb for the chisel.</color>" : "\n<color=#ffb060>Press T for the chisel.</color>");
+            }
+            else
+            {
+                b.Append(_voicing.HintActive
+                    ? "\n<color=#ffc860>The ring marks a good place to cut.</color>"
+                    : "\nThe ghost on each gauge shows where a cut would take it.\nEvery cut is final. Listen for the wobble to fade.");
+            }
+        }
+
+        /// <summary>"Lower: Root, Fifth" for the voices still sharp, and a warning for any gone flat.</summary>
+        void AppendVoiceStates(StringBuilder b, VoicingCommission commission)
+        {
+            Vector4 errors = _voicing.Errors;
+            float tolerance = commission.ToleranceCents;
+            bool any = false;
+            for (int m = 0; m < VoicingMath.VoiceCount; m++)
+            {
+                if (errors[m] > tolerance)
+                {
+                    b.Append(any ? ", " : "\nStill sharp: <color=#ffc860>").Append(commission.Roles[m]);
+                    any = true;
+                }
+            }
+
+            if (any)
+            {
+                b.Append("</color>");
+            }
+
+            bool flat = false;
+            for (int m = 0; m < VoicingMath.VoiceCount; m++)
+            {
+                if (errors[m] < -tolerance)
+                {
+                    b.Append(flat ? ", " : "\n<color=#7fa8ff>Too flat, cuts only lower: ").Append(commission.Roles[m]);
+                    flat = true;
+                }
+            }
+
+            if (flat)
+            {
+                b.Append("</color>");
+            }
+
+            if (!any && !flat)
+            {
+                b.Append("\nEvery voice is within tolerance.");
+            }
+        }
+
+        /// <summary>Which voices are sharp, flat or in tune, as a base-3 number, for the display key.</summary>
+        int VoiceStateMask()
+        {
+            Vector4 errors = _voicing.Errors;
+            float tolerance = _voicing.Commission.ToleranceCents;
+            int mask = 0;
+            for (int m = 0; m < VoicingMath.VoiceCount; m++)
+            {
+                mask = mask * 3 + (errors[m] > tolerance ? 1 : errors[m] < -tolerance ? 2 : 0);
+            }
+
+            return mask;
+        }
+
         void BuildAwakening(StringBuilder b, bool hands)
         {
             if (_sigil.Suspended)
@@ -444,6 +590,7 @@ namespace KineticForge.Feedback
                 return;
             }
 
+            Step(b, 1);
             Title(b, "AWAKEN THE SIGIL");
             b.Append(_strikes == 0
                 ? (hands ? "\nPoint at the relic and pinch to strike it.\nWatch the sand." : "\nAim and left-click to strike the relic.\nWatch the sand.")
@@ -461,6 +608,7 @@ namespace KineticForge.Feedback
         {
             if (_quench != null && _quench.IsBusy)
             {
+                Step(b, 3);
                 Title(b, "QUENCHING");
                 b.Append("\nThe water takes the heat.");
                 return;
@@ -468,8 +616,14 @@ namespace KineticForge.Feedback
 
             if (_quench != null && _quench.Stage == QuenchStage.Done && _forged)
             {
+                Step(b, 4);
                 Title(b, "THE RELIC SINGS");
-                if (_sigil != null)
+                if (_voicing != null)
+                {
+                    b.Append("\n").Append(_voicing.Commission.Name).Append(", ").Append(_voicing.Commission.ChordName).Append(" in ")
+                        .Append(_voicing.Commission.RootName).Append(". Grade ").Append(GradeName(_result.Grade)).Append('.');
+                }
+                else if (_sigil != null)
                 {
                     b.Append("\n").Append(_sigil.Sigil.Name).Append(", in ").Append(_sigil.Sigil.NoteName).Append(". Grade ")
                         .Append(GradeName(_result.Grade)).Append('.');
@@ -480,6 +634,11 @@ namespace KineticForge.Feedback
                 if (Time.time - _quenchedTime >= 1.5f)
                 {
                     b.Append(hands ? "\n\n<color=#ffc860>Pinch to forge the next sigil</color>" : "\n\n<color=#ffc860>Click to forge the next sigil</color>");
+                    if (hands)
+                    {
+                        // Mixed reality is offered once the core loop is learned, never as a first-minute verb.
+                        b.Append("\n<size=").Append(ScaledSize(0.75f)).Append("><color=#9fc8e0>Or pinch with both hands to forge in your own room</color></size>");
+                    }
                 }
 
                 return;
@@ -488,6 +647,7 @@ namespace KineticForge.Feedback
             if (_forged)
             {
                 bool fractured = _result.Grade == ForgeGrade.Fractured;
+                Step(b, 3);
                 Title(b, fractured ? "THE RELIC SHATTERED" : "RELIC FORGED");
                 b.Append("\n<size=").Append(ScaledSize(fractured ? 1.2f : 1.8f)).Append("><b>Grade ").Append(GradeName(_result.Grade))
                     .Append("</b></size>\n");
@@ -498,6 +658,7 @@ namespace KineticForge.Feedback
             }
             else
             {
+                Step(b, 3);
                 Title(b, "RELIC FORGED");
             }
 
@@ -549,6 +710,13 @@ namespace KineticForge.Feedback
         {
             // TMP rich text takes relative sizes.
             return Mathf.RoundToInt(scale * 100f).ToString(CultureInfo.InvariantCulture) + "%";
+        }
+
+        /// <summary>A small "STEP n OF 4" line above a stage title, so the player always knows where they are.</summary>
+        static void Step(StringBuilder b, int step)
+        {
+            b.Append("<size=58%><cspace=0.14em><color=#b89a78>STEP ").Append(step).Append(" OF ").Append(StageCount)
+                .Append("</color></cspace></size>\n");
         }
 
         static void Title(StringBuilder b, string title)

@@ -280,6 +280,23 @@ namespace KineticForge.Crafting
         }
 
         /// <summary>Starts a fresh forging: hot metal at rest, full integrity, no score.</summary>
+        /// <summary>
+        /// Finishes the relic with a quality decided elsewhere, such as the tuning score of a voiced relic. Grades it with
+        /// the remaining integrity and raises <see cref="ForgeEvents.RelicForged"/>. Does nothing once forged.
+        /// </summary>
+        /// <param name="quality">Quality in [0, 1].</param>
+        public void ForgeWithQuality(float quality)
+        {
+            if (_forged)
+            {
+                return;
+            }
+
+            _qualitySum = ForgeMath.Sanitize01(quality);
+            _carvedCount = 1;
+            Finish();
+        }
+
         public void ResetForging()
         {
             _pulse = Vector2.zero;

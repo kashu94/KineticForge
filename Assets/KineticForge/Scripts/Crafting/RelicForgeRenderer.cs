@@ -63,6 +63,8 @@ namespace KineticForge.Crafting
         RelicCarvingSurface _surface;
         RelicResonance _resonance;
         RelicSigil _sigil;
+        RelicVoicing _voicing;
+        Action<Vector2> _onCut;
         Rigidbody _body;
         MeshRenderer _renderer;
         float _fill = 1f;
@@ -129,6 +131,7 @@ namespace KineticForge.Crafting
             _resonance = GetComponent<RelicResonance>();
             _sigil = GetComponent<RelicSigil>();
             _body = GetComponent<Rigidbody>();
+            _onCut = HandleCut;
             _renderer = GetComponent<MeshRenderer>();
             _block = new MaterialPropertyBlock();
             _onResonated = HandleResonated;
@@ -149,12 +152,44 @@ namespace KineticForge.Crafting
         {
             ForgeEvents.RelicResonated += _onResonated;
             ForgeEvents.GamePhaseChanged += _onPhaseChanged;
+            if (_voicing != null)
+            {
+                _voicing.OnCut += _onCut;
+            }
         }
 
         void OnDisable()
         {
             ForgeEvents.RelicResonated -= _onResonated;
             ForgeEvents.GamePhaseChanged -= _onPhaseChanged;
+            if (_voicing != null)
+            {
+                _voicing.OnCut -= _onCut;
+            }
+        }
+
+        void Start()
+        {
+            // Voicing may have been added after this component woke, so it is found here and followed from now on.
+            if (_voicing == null)
+            {
+                _voicing = GetComponent<RelicVoicing>();
+                if (_voicing != null)
+                {
+                    _voicing.OnCut += _onCut;
+                }
+            }
+        }
+
+        /// <summary>A chisel cut from voicing: a fresh, glowing notch where the metal was removed.</summary>
+        void HandleCut(Vector2 uv)
+        {
+            if (_vertices == null)
+            {
+                return;
+            }
+
+            Stamp(uv, uv, _markRadius * 1.1f, _maxDepth * 0.85f, 1f);
         }
 
         void OnDestroy()

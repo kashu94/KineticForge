@@ -58,10 +58,10 @@ namespace KineticForge.Crafting
         float _heldAmplitude = 0.8f;
 
         [SerializeField, Min(0f), Tooltip("Seconds of searching before the hint starts to show where to strike.")]
-        float _hintDelay = 10f;
+        float _hintDelay = 6f;
 
         [SerializeField, Min(0.1f), Tooltip("Seconds the hint takes to reach full strength.")]
-        float _hintRamp = 8f;
+        float _hintRamp = 5f;
 
         [SerializeField, Tooltip("Remember the next sigil between sessions.")]
         bool _persistProgress = true;

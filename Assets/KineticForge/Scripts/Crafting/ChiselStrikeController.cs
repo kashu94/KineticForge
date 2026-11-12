@@ -51,6 +51,7 @@ namespace KineticForge.Crafting
         RelicStabilizer _stabilizer;
         RelicResonance _resonance;
         RelicSigil _sigil;
+        RelicVoicing _voicing;
         Rigidbody _body;
         float _lastStrikeTime = float.NegativeInfinity;
         float _lastPrecision;
@@ -77,6 +78,11 @@ namespace KineticForge.Crafting
         public bool Strike(ForgeHand hand, float intensity)
         {
             float now = Time.unscaledTime;
+            if (_voicing != null && _voicing.IsActive)
+            {
+                return StrikeVoicing(hand, intensity, now);
+            }
+
             if (!_surface.IsAcceptingStrikes || !_surface.TryGetActiveMark(out Vector3 mark, out _))
             {
                 return RingWithoutCarving(hand, intensity, now);
@@ -124,6 +130,33 @@ namespace KineticForge.Crafting
         /// While a sigil is awakening, strikes ring the relic to shape its Chladni figure but carve nothing, so they are
         /// not published as chisel strikes and never count toward forging progress.
         /// </summary>
+        /// <summary>
+        /// A strike during voicing: the hammer only rings the relic; the chisel first cuts where it lands, lowering the
+        /// voices by their sensitivity there, then rings it, so the player hears the result of the cut at once.
+        /// </summary>
+        bool StrikeVoicing(ForgeHand hand, float intensity, float now)
+        {
+            if (_resonance == null || now - _lastStrikeTime < _strikeCooldown)
+            {
+                return false;
+            }
+
+            _lastStrikeTime = now;
+            _cursor.GetStrikePoint(out Vector3 point, out Vector3 normal);
+            float strength = ForgeMath.Sanitize01(intensity, 1f);
+            _strikeCount++;
+
+            if (_voicing.Tool == VoicingTool.Chisel)
+            {
+                Vector2 uv = _surface.WorldToUV(point);
+                _voicing.ApplyCut(uv, strength, _resonance.Softness, _resonance.Charge);
+            }
+
+            ApplyRecoil(normal, strength);
+            _resonance.ApplyStrike(hand, point, normal, strength, 1f, -1);
+            return true;
+        }
+
         bool RingWithoutCarving(ForgeHand hand, float intensity, float now)
         {
             if (_sigil == null || !_sigil.IsAwakening || _resonance == null || now - _lastStrikeTime < _strikeCooldown)
@@ -147,6 +180,7 @@ namespace KineticForge.Crafting
             _stabilizer = GetComponent<RelicStabilizer>();
             _resonance = GetComponent<RelicResonance>();
             _sigil = GetComponent<RelicSigil>();
+            _voicing = GetComponent<RelicVoicing>();
             _body = GetComponent<Rigidbody>();
             _onTap = HandleTap;
         }
@@ -168,6 +202,11 @@ namespace KineticForge.Crafting
             if (_sigil == null)
             {
                 _sigil = GetComponent<RelicSigil>();
+            }
+
+            if (_voicing == null)
+            {
+                _voicing = GetComponent<RelicVoicing>();
             }
         }
 

@@ -46,6 +46,7 @@ namespace KineticForge.EditorTools
             string[] names =
             {
                 "Kinetic Forge/Forge Metal", "Kinetic Forge/Forge Glow", "Kinetic Forge/Forge Text", "Kinetic Forge/Forge Panel",
+                "Kinetic Forge/Forge Gauge",
             };
             string[][] keywordSets =
             {

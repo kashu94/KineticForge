@@ -37,9 +37,14 @@ namespace KineticForge.Feedback
         [SerializeField, ColorUsage(false, true), Tooltip("Ring color inside the rhythm window.")]
         Color _strikeColor = new Color(1.4f, 0.95f, 0.35f);
 
+        [SerializeField, ColorUsage(false, true), Tooltip("Ring color with the chisel in hand, outside the rhythm window.")]
+        Color _chiselColor = new Color(1.3f, 0.55f, 0.18f);
+
         RelicCarvingSurface _surface;
         RelicResonance _resonance;
         RelicSigil _sigil;
+        RelicVoicing _voicing;
+        CarvingCursor _cursor;
         Transform _ring;
         Renderer _renderer;
         MaterialPropertyBlock _block;
@@ -49,6 +54,8 @@ namespace KineticForge.Feedback
             _surface = GetComponent<RelicCarvingSurface>();
             _resonance = GetComponent<RelicResonance>();
             _sigil = GetComponent<RelicSigil>();
+            _voicing = GetComponent<RelicVoicing>();
+            _cursor = GetComponent<CarvingCursor>();
             _block = new MaterialPropertyBlock();
         }
 
@@ -74,6 +81,22 @@ namespace KineticForge.Feedback
         {
             if (_ring == null)
             {
+                return;
+            }
+
+            if (_voicing == null)
+            {
+                _voicing = GetComponent<RelicVoicing>();
+            }
+
+            if (_cursor == null)
+            {
+                _cursor = GetComponent<CarvingCursor>();
+            }
+
+            if (_voicing != null && _voicing.IsActive)
+            {
+                UpdateVoicing();
                 return;
             }
 
@@ -122,6 +145,55 @@ namespace KineticForge.Feedback
             }
 
             PlaceRing(mark, normal, diameter, color);
+        }
+
+        /// <summary>
+        /// While voicing, the ring is a reticle at the strike point: blue for the hammer, ember for the chisel, closing
+        /// with the relic's pulse and flaring gold in the rhythm window. After a long search it moves to a good place to
+        /// cut instead.
+        /// </summary>
+        void UpdateVoicing()
+        {
+            bool hint = _voicing.HintActive;
+            bool visible = hint || _cursor != null;
+            if (_renderer.enabled != visible)
+            {
+                _renderer.enabled = visible;
+            }
+
+            if (!visible)
+            {
+                return;
+            }
+
+            Vector3 point;
+            Vector3 normal;
+            if (hint)
+            {
+                _surface.GetFacePoint(UvToFace(_voicing.HintUV), out point, out normal);
+                float breathe = 0.5f + 0.5f * Mathf.Sin(Time.time * 3f);
+                PlaceRing(point, normal, Mathf.Lerp(_openDiameter, _closedDiameter * 2f, breathe), _strikeColor * 0.8f);
+                return;
+            }
+
+            _cursor.GetStrikePoint(out point, out normal);
+            Color baseColor = _voicing.Tool == VoicingTool.Chisel ? _chiselColor : _waitColor;
+            float diameter;
+            Color color;
+            if (_resonance.IsPulsing)
+            {
+                float remaining = _resonance.CycleToIdealStrike;
+                diameter = Mathf.Lerp(_closedDiameter, _openDiameter, remaining * remaining);
+                float window = Mathf.InverseLerp(_rhythmThreshold, 1f, _resonance.TimingNow);
+                color = Color.Lerp(baseColor, _strikeColor, window > 0f ? 0.6f + 0.4f * window : 0f);
+            }
+            else
+            {
+                diameter = Mathf.Lerp(_closedDiameter, _openDiameter, 0.3f);
+                color = baseColor * 0.85f;
+            }
+
+            PlaceRing(point, normal, diameter, color);
         }
 
         Vector2 UvToFace(Vector2 uv)

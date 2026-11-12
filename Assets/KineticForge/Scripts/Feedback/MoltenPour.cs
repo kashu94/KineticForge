@@ -51,6 +51,7 @@ namespace KineticForge.Feedback
 
         RelicResonance _resonance;
         RelicSigil _sigil;
+        RelicVoicing _voicing;
         Rigidbody _body;
         Quaternion _restRotation;
         Vector3 _loweredPosition;
@@ -76,6 +77,11 @@ namespace KineticForge.Feedback
             if (_sigil != null)
             {
                 _sigil.Suspended = true;
+            }
+
+            if (_voicing != null)
+            {
+                _voicing.Suspended = true;
             }
         }
 
@@ -108,6 +114,7 @@ namespace KineticForge.Feedback
             {
                 _resonance = _relic.GetComponent<RelicResonance>();
                 _sigil = _relic.GetComponent<RelicSigil>();
+                _voicing = _relic.GetComponent<RelicVoicing>();
                 _body = _relic.GetComponent<Rigidbody>();
             }
         }
@@ -184,6 +191,11 @@ namespace KineticForge.Feedback
                 if (_sigil != null)
                 {
                     _sigil.Suspended = false;
+                }
+
+                if (_voicing != null)
+                {
+                    _voicing.Suspended = false;
                 }
             }
         }

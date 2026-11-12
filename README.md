@@ -7,7 +7,7 @@ You forge ancient relics with **Dual-Scale Input**:
 - **Macro: your stance.** Body tracking reads how grounded you are: crouch depth, torso lean, stance width, balance over your feet and stillness. A braced stance makes a heavy relic steady in your hands. Standing tall makes it wobble and kick.
 - **Micro: your thumb.** Sliding your thumb along the side of your index finger steers a chisel point across the relic. A thumb tap strikes.
 
-A strike's precision is your aim times your stance. Carve all twelve rune marks to forge the first relic.
+Forging is **voicing**: each relic is commissioned to sing a chord, but the pour leaves its four voices sharp. You cut metal where it lowers the right voices, listening for the wobble to fade, until the relic rings true. Stance steadies the chisel, so your body decides how finely you can cut.
 
 ## Resonant Forging
 
@@ -22,14 +22,16 @@ The relic is a resonating body, simulated rather than animated:
 
 An in-world guide teaches all of this while you play.
 
-## Cymatic Forge: the full loop
+## Voicing: the full loop
 
-1. **The pour.** A crucible lowers on its chain and pours molten bronze; the relic fills its mold from the bottom up, white-hot.
-2. **Awaken the sigil.** Every spot on the face rings a different Chladni figure, and glowing filings slide onto its nodal lines as it rings. A faint blue ghost shows the sigil to match. Strike until the sand draws it; if the search drags on, a ring marks the spot. The sigil then sets and its rune appears along the sand.
-3. **Carve in rhythm.** Carve the rune's twelve marks along the figure's lines, riding the relic's pulse. Bracing visibly grounds the charge: energy drains into the floor and ripples out at your feet. A loose stance throws sparks and cracks cold metal.
-4. **Quench.** Pinch on the result screen: the relic is plunged into the water trough in a burst of steam and a long hiss, then rises and sings its note, as in tune as it was carved.
-5. **The Resonance Wall.** Every quenched relic hangs on the wall with its sigil and keeps its note between sessions. Point and pinch to ring them; each forge brings the next of six sigils, from easy to hard.
-6. **Mixed reality.** Pinch with both hands for a moment to forge in your own room: the hall dissolves into passthrough and the anvil, braziers, trough, wall and relic stay.
+1. **The commission.** A patron asks for a chord (open fifths, major, minor, suspended, major seventh, minor seventh), each harder than the last. The pour leaves the relic's four voices, one per plate mode, ringing sharp. A crucible lowers on its chain and pours molten bronze; the relic fills its mold white-hot.
+2. **Ring it.** Every spot on the face rings different voices, and glowing filings slide onto the nodal lines of what rings. A **tuning fork** answers each strike with the target pitches, so a voice that is off beats against its fork: a wobble that slows and fades as the voice comes true.
+3. **Tune it.** Swap to the chisel and cut metal. Where a voice moves most (the bare patches, never the sand) a cut lowers its pitch most. Every cut is final and cuts only lower pitch, so overshooting leaves a voice flat for good. The **tuner** beside the anvil shows each voice in cents, the in-tune band, and a ghost marker for where the next cut would take it. Rhythm is optional: a charged relic cuts coarser, a calm one finer. Bracing visibly grounds the charge; a loose stance throws sparks and cracks cold metal. When every voice is in tune the relic settles; cut again to refine, or let it finish.
+4. **Quench.** Pinch on the result screen: the relic is plunged into the water trough in a burst of steam and a long hiss, then rises and sings the chord exactly as you tuned it.
+5. **The Resonance Wall.** Every quenched relic hangs on the wall and keeps the chord you left it with, between sessions. Point and pinch to ring them; a relic you tuned badly sounds it. Each forge brings the next of six commissions.
+6. **Mixed reality.** Pinch with both hands for a moment to forge in your own room: the hall dissolves into passthrough and the anvil, hearths, trough, wall and relic stay.
+
+The model is simplified, not a finite element simulation: the sensitivity of a voice at a point is the square of its plate mode shape there, which follows how bell founders tune. It lives in `VoicingMath`, which is unit-tested, including that every commission is solvable within its cut budget.
 
 ## Requirements
 
@@ -54,7 +56,8 @@ Use **Advance Phase** on the Forge Game Manager to skip ahead while testing.
 | Brace your stance | Crouch, lean in, widen your feet | Same | Hold Space, or press B to toggle |
 | Grab the relic | Close your hand near it | Squeeze the grip | Held automatically by the Relic Hold Simulator |
 | Aim the chisel | Point at the relic; slide your thumb along your index finger for fine control | Thumbstick | Right-drag the mouse |
-| Strike, as the ring closes | Pinch, or tap your thumb on your index finger | Index trigger | Left-click |
+| Ring or cut (strike) | Pinch, or tap your thumb on your index finger | Index trigger | Left-click |
+| Swap hammer and chisel | Tap the thumb of your other hand | Left index trigger | T |
 | Quench, then forge again (result screen) | Pinch | Index trigger | Left-click |
 | Ring a relic on the Resonance Wall | Point at it and pinch | – | Left-click it |
 | Mixed reality (forge in your room) | Pinch with both hands for a second | – | M (previews by hiding the hall) |
@@ -143,8 +146,8 @@ All code lives in `Assets/KineticForge`, one assembly per module:
 | `KineticForge.Core` | Exception-isolated event bus, game flow with pause handling, logging, filters and math |
 | `KineticForge.Tracking` | Stance tracking and solver, micro-gesture tracking, hand skeleton reading, Editor input fallbacks |
 | `KineticForge.Physics` | Stance-driven relic stabilization, physical two-hand grip, hold simulator for testing |
-| `KineticForge.Crafting` | Hand grabbing, pointer aiming, rune carving surface, carving cursor, chisel strikes, the precision model, relic resonance (pulse, heat, cracks, grade), the cymatic sigil puzzle and the carvable relic mesh |
-| `KineticForge.Feedback` | Modal relic synth, Chladni sand, grounding flow, sparks, flames, embers, firelight, the rhythm ring, molten pour, quench, Resonance Wall, mixed reality, the in-world guide and the test-build diagnostics panel |
+| `KineticForge.Crafting` | Hand grabbing, pointer aiming, rune carving surface, carving cursor, chisel strikes, the precision model, relic resonance (pulse, heat, cracks, grade), voicing (commissions, cuts, tuning, settling), the cymatic sigil puzzle and the carvable relic mesh |
+| `KineticForge.Feedback` | Modal relic synth with a tuning fork, the voice tuner, Chladni sand, grounding flow, sparks, flames, embers, firelight, the rhythm ring, molten pour, quench, Resonance Wall, mixed reality, the in-world guide and the test-build diagnostics panel |
 | `KineticForge.Platform` | Quest frame pacing, headset session monitoring, and a guard that keeps scenes playable where Meta's native plugin is missing (for example the Linux Editor) |
 | `KineticForge.Editor` | Live inspectors, sandbox and forge environment builders, the scanned asset library and world-scaled meshes, lighting bake, URP setup, the Quest build pipeline with its preflight check, and batch entry points |
 

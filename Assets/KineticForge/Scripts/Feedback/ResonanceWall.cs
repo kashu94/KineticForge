@@ -72,6 +72,7 @@ namespace KineticForge.Feedback
         Action<MicroGestureTapEvent> _onTap;
         Action _onQuenched;
         RelicSigil _sigil;
+        RelicVoicing _voicing;
         RelicResonance _resonance;
 
 #if KF_META_XR_CORE
@@ -119,6 +120,7 @@ namespace KineticForge.Feedback
             {
                 _quench.OnQuenched += _onQuenched;
                 _sigil = _quench.GetComponent<RelicSigil>();
+                _voicing = _quench.GetComponent<RelicVoicing>();
                 _resonance = _quench.GetComponent<RelicResonance>();
             }
 
@@ -176,12 +178,14 @@ namespace KineticForge.Feedback
 
         void HandleQuenched()
         {
-            if (_sigil == null || _resonance == null)
+            if ((_sigil == null && _voicing == null) || _resonance == null)
             {
                 return;
             }
 
-            ForgedRelic relic = new ForgedRelic(_sigil.SigilIndex, _resonance.Grade, _resonance.MeanQuality);
+            ForgedRelic relic = _voicing != null
+                ? new ForgedRelic(_voicing.CommissionIndex, _resonance.Grade, _resonance.MeanQuality, _voicing.Errors)
+                : new ForgedRelic(_sigil.SigilIndex, _resonance.Grade, _resonance.MeanQuality);
             ForgeArchive.Append(relic);
             if (_plaques.Count >= ForgeArchive.Capacity)
             {
@@ -279,7 +283,10 @@ namespace KineticForge.Feedback
                 Collider = collider,
                 Figure = sigil.Figure,
                 Tint = GradeTint(relic.Grade),
-                Note = ModalNoteBank.Render("Relic Note " + sigil.NoteName, sigil.Note, 3f, relic.DetuneCents, sampleRate),
+                Note = relic.HasVoices
+                    ? ModalNoteBank.RenderChord("Relic Chord " + sigil.NoteName, VoicingMath.GetCommission(relic.Sigil),
+                        relic.VoiceErrors, 3.5f, sampleRate)
+                    : ModalNoteBank.Render("Relic Note " + sigil.NoteName, sigil.Note, 3f, relic.DetuneCents, sampleRate),
             };
             _plaques.Add(plaque);
             Layout();
