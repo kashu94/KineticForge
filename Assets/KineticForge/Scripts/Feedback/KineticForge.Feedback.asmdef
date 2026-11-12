@@ -6,7 +6,8 @@
         "KineticForge.Tracking",
         "KineticForge.Physics",
         "KineticForge.Crafting",
-        "Oculus.VR"
+        "Oculus.VR",
+        "Unity.TextMeshPro"
     ],
     "includePlatforms": [],
     "excludePlatforms": [],

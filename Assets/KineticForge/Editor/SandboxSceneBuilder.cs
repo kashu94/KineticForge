@@ -6,6 +6,7 @@ using KineticForge.Feedback;
 using KineticForge.Physics;
 using KineticForge.Platform;
 using KineticForge.Tracking;
+using TMPro;
 using UnityEditor;
 using UnityEditor.SceneManagement;
 using UnityEngine;
@@ -44,6 +45,7 @@ namespace KineticForge.EditorTools
         const float AnvilDistance = 0.55f;
         const float HoldLift = 0.22f;
         const float EditorEyeHeight = 1.45f;
+        const float GuideLineHeight = 0.034f;
         const float RelicMass = 20f;
         static readonly Vector3 RelicSize = new Vector3(0.3f, 0.3f, 0.08f);
 
@@ -77,11 +79,88 @@ namespace KineticForge.EditorTools
             Selection.activeGameObject = systems;
         }
 
+        [MenuItem("Kinetic Forge/Bake Forge Lighting", false, 1)]
+        static void BakeLightingMenu()
+        {
+            if (EditorApplication.isPlayingOrWillChangePlaymode)
+            {
+                EditorUtility.DisplayDialog("Kinetic Forge", "Exit Play Mode before baking.", "OK");
+                return;
+            }
+
+            if (!EditorSceneManager.SaveCurrentModifiedScenesIfUserWantsTo())
+            {
+                return;
+            }
+
+            bool baked = BakeLighting();
+            EditorUtility.DisplayDialog("Kinetic Forge", baked
+                ? "Forge lighting baked: " + LightmapSettings.lightmaps.Length + " lightmap(s), light probes and the reflection probe."
+                : "The lighting bake failed or was cancelled. See the Console.", "OK");
+        }
+
+        /// <summary>
+        /// Opens the sandbox scene, bakes its lightmaps, light probes and reflection probe with the forge's lighting
+        /// settings, and saves it. Takes a few minutes on the CPU lightmapper.
+        /// </summary>
+        /// <returns>True when the bake completed.</returns>
+        internal static bool BakeLighting()
+        {
+            if (SystemInfo.graphicsDeviceType == UnityEngine.Rendering.GraphicsDeviceType.Null)
+            {
+                // Lightmaps bake on the CPU, but reflection probes are rendered: without a GPU they come out empty and
+                // every metal surface would reflect black.
+                ForgeLog.Warn(ForgeLogChannel.Core, LogSource, "BAKE_WITHOUT_GRAPHICS",
+                    "Baking without a graphics device (-nographics): lightmaps bake, but the reflection probe renders " +
+                    "empty. Bake from the Editor, or run batch mode without -nographics.", null);
+            }
+
+            Scene scene = EditorSceneManager.OpenScene(ScenePath, OpenSceneMode.Single);
+            ForgeEnvironmentBuilder.ApplyLightingSettings();
+            bool baked = Lightmapping.Bake();
+            EditorSceneManager.SaveScene(scene);
+            if (baked)
+            {
+                ForgeLog.Info(ForgeLogChannel.Core, LogSource, "LIGHTING_BAKED",
+                    "Baked " + LightmapSettings.lightmaps.Length + " lightmap(s) for " + ScenePath + ".", null);
+            }
+            else
+            {
+                ForgeLog.Error(ForgeLogChannel.Core, LogSource, "LIGHTING_BAKE_FAILED",
+                    "The lighting bake for " + ScenePath + " failed or was cancelled.", null);
+            }
+
+            return baked;
+        }
+
+        /// <summary>True when the saved sandbox scene references baked lighting data.</summary>
+        /// <param name="scenePath">Scene asset path.</param>
+        internal static bool HasBakedLighting(string scenePath)
+        {
+            if (!File.Exists(scenePath))
+            {
+                return false;
+            }
+
+            // An unbaked scene stores "m_LightingDataAsset: {fileID: 0}"; a baked one references its LightingData asset.
+            foreach (string line in File.ReadLines(scenePath))
+            {
+                int index = line.IndexOf("m_LightingDataAsset:", System.StringComparison.Ordinal);
+                if (index >= 0)
+                {
+                    return line.IndexOf("guid:", index, System.StringComparison.Ordinal) >= 0;
+                }
+            }
+
+            return false;
+        }
+
         /// <summary>Builds and saves the sandbox scene without any dialogs. Used by the menu and by batch mode.</summary>
         /// <returns>The systems object of the new scene.</returns>
         internal static GameObject BuildSandbox()
         {
             UrpSetup.EnsureUrp();
+            ForgeTypography.EnsureEssentials();
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
             Camera defaultCamera = Camera.main;
 
@@ -95,6 +174,7 @@ namespace KineticForge.EditorTools
             GameObject relic = CreateRelic(relicPosition, palette, water);
             GameObject systems = CreateSystems(palette);
             CreateGuide(palette);
+            CreateDiagnostics(palette);
             CreatePour(palette, systems, relic, relicPosition);
             CreateWall(palette, relic);
             CreateMixedReality(systems, forge);
@@ -113,6 +193,7 @@ namespace KineticForge.EditorTools
                 ForgeEnvironmentBuilder.ConfigureCamera(defaultCamera);
             }
 
+            ForgeEnvironmentBuilder.ApplyLightingSettings();
             EnsureFolder(SceneFolder);
             EditorSceneManager.SaveScene(scene, ScenePath);
             AddSceneToBuildSettings(ScenePath);
@@ -189,9 +270,9 @@ namespace KineticForge.EditorTools
 
             // Under the relic: its heat lights the anvil and the player's hands without flooding the carved face.
             Light glow = ForgeEnvironmentBuilder.PointLight("Relic Glow", relic.transform,
-                position + Vector3.down * 0.24f + Vector3.forward * 0.06f, new Color(1f, 0.55f, 0.2f), 1.4f, 1.2f);
+                position + Vector3.down * 0.24f + Vector3.forward * 0.06f, new Color(1f, 0.55f, 0.2f), 0.55f, 0.9f);
             ForgeFlicker flicker = glow.gameObject.AddComponent<ForgeFlicker>();
-            ForgeEnvironmentBuilder.SetFloat(flicker, "_intensity", 1.4f);
+            ForgeEnvironmentBuilder.SetFloat(flicker, "_intensity", 0.55f);
             ForgeEnvironmentBuilder.SetObject(flicker, "_heatSource", resonance);
             return relic;
         }
@@ -292,24 +373,64 @@ namespace KineticForge.EditorTools
             return handObject;
         }
 
-        static void CreateGuide(ForgeEnvironmentBuilder.Palette palette)
+        /// <summary>
+        /// Adds the test-build diagnostics panel to the player's right, angled toward a seated eye. It switches itself off
+        /// in builds without diagnostics.
+        /// </summary>
+        static void CreateDiagnostics(ForgeEnvironmentBuilder.Palette palette)
         {
-            GameObject guide = new GameObject("Forge Guide");
-            guide.transform.SetPositionAndRotation(new Vector3(0f, 1.5f, 1.25f), Quaternion.identity);
-            TextMesh text = guide.AddComponent<TextMesh>();
+            Vector3 position = new Vector3(0.95f, 1.2f, 0.75f);
+            Vector3 eye = new Vector3(0f, 1.25f, 0f);
+            GameObject panel = new GameObject("Forge Diagnostics");
+            panel.transform.SetPositionAndRotation(position, Quaternion.LookRotation(position - eye, Vector3.up));
+            TextMesh text = panel.AddComponent<TextMesh>();
             text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
             text.fontSize = 48;
-            text.characterSize = 0.1f;
-            text.color = new Color(1f, 0.93f, 0.85f);
-            text.anchor = TextAnchor.MiddleCenter;
-            text.alignment = TextAlignment.Center;
+            text.characterSize = 0.022f;
+            text.color = new Color(0.86f, 0.9f, 0.95f);
+            text.anchor = TextAnchor.UpperLeft;
+            text.alignment = TextAlignment.Left;
             text.richText = true;
-            text.text = "KINETIC FORGE";
-            MeshRenderer renderer = guide.GetComponent<MeshRenderer>();
+            text.text = "DIAGNOSTICS";
+            MeshRenderer renderer = panel.GetComponent<MeshRenderer>();
             renderer.sharedMaterial = palette.Text;
             renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             renderer.receiveShadows = false;
-            guide.AddComponent<ForgeGuide>();
+            panel.AddComponent<WorldText>();
+            ForgeDiagnostics diagnostics = panel.AddComponent<ForgeDiagnostics>();
+            ForgeEnvironmentBuilder.SetObject(diagnostics, "_text", text);
+        }
+
+        static void CreateGuide(ForgeEnvironmentBuilder.Palette palette)
+        {
+            // Right of center and turned toward a seated eye: the crucible pours left of center, so its silhouette never
+            // covers the text during the intro.
+            GameObject guide = new GameObject("Forge Guide");
+            Vector3 eye = new Vector3(0f, 1.25f, 0f);
+            Vector3 position = new Vector3(0.34f, 1.5f, 1.2f);
+            Vector3 facing = position - eye;
+            facing.y = 0f;
+            guide.transform.SetPositionAndRotation(position, Quaternion.LookRotation(facing, Vector3.up));
+            TextMeshPro text = guide.AddComponent<TextMeshPro>();
+            TMP_FontAsset font = ForgeTypography.TextFont();
+            if (font != null)
+            {
+                text.font = font;
+            }
+
+            text.fontSize = ForgeGuide.FontSizeFor(text.font, GuideLineHeight);
+            text.color = new Color(1f, 0.94f, 0.87f);
+            text.alignment = TextAlignmentOptions.Center;
+            text.textWrappingMode = TextWrappingModes.NoWrap;
+            text.richText = true;
+            text.text = "KINETIC FORGE";
+            text.rectTransform.sizeDelta = new Vector2(1.2f, 0.4f);
+            MeshRenderer renderer = guide.GetComponent<MeshRenderer>();
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            ForgeGuide forgeGuide = guide.AddComponent<ForgeGuide>();
+            ForgeEnvironmentBuilder.SetFloat(forgeGuide, "_lineHeight", GuideLineHeight);
+            ForgeEnvironmentBuilder.CreatePlate(guide.transform, text, palette.Panel);
         }
 
         static void EnsureFolder(string path)
@@ -389,8 +510,17 @@ namespace KineticForge.EditorTools
                 if (passthrough != null)
                 {
                     passthrough.boolValue = true;
-                    managerSettings.ApplyModifiedPropertiesWithoutUndo();
                 }
+
+                // Body tracking is a runtime permission on Quest: without the startup request OVRBody never receives
+                // data and stance falls back to the head-pose tier.
+                SerializedProperty bodyPermission = managerSettings.FindProperty(QuestBuild.BodyPermissionProperty);
+                if (bodyPermission != null)
+                {
+                    bodyPermission.boolValue = true;
+                }
+
+                managerSettings.ApplyModifiedPropertiesWithoutUndo();
 
                 OVRPassthroughLayer layer = manager.gameObject.AddComponent<OVRPassthroughLayer>();
                 layer.hidden = true;

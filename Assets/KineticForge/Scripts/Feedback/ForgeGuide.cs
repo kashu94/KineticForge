@@ -3,6 +3,7 @@ using System.Globalization;
 using System.Text;
 using KineticForge.Core;
 using KineticForge.Crafting;
+using TMPro;
 using UnityEngine;
 
 namespace KineticForge.Feedback
@@ -15,8 +16,8 @@ namespace KineticForge.Feedback
     /// </summary>
     /// <remarks>
     /// <para>
-    /// Text is a <see cref="TextMesh"/> rendered with the Forge Text shader, which works in URP and single-pass stereo.
-    /// The panel sizes itself to <see cref="LineHeight"/> once its first text has a mesh, whatever the font settings.
+    /// Text is TextMesh Pro, set in Inter with Cinzel titles, sized so one line is <see cref="LineHeight"/> meters tall
+    /// whatever the font. A <see cref="ForgePanel"/> behind it fits a glass plate to the text. Each new step fades in.
     /// </para>
     /// <para>
     /// The guide reads state every frame but rebuilds its text only when what it shows changes, so it allocates a few
@@ -24,12 +25,15 @@ namespace KineticForge.Feedback
     /// keyboard and mouse in the Editor.
     /// </para>
     /// </remarks>
-    [RequireComponent(typeof(TextMesh))]
+    [RequireComponent(typeof(TextMeshPro))]
     [DisallowMultipleComponent]
     [AddComponentMenu("Kinetic Forge/Feedback/Forge Guide")]
     public sealed class ForgeGuide : MonoBehaviour
     {
-        static readonly int MainTexId = Shader.PropertyToID("_MainTex");
+        /// <summary>Name of the display font asset used for titles, as TMP's &lt;font&gt; tag expects it.</summary>
+        public const string TitleFont = "Cinzel SDF";
+
+        const float TextScaleFactor = 0.1f;
 
         [SerializeField, Tooltip("Game flow to follow. Found in the scene when empty.")]
         ForgeGameManager _game = null;
@@ -46,13 +50,14 @@ namespace KineticForge.Feedback
         [SerializeField, Range(0, 12), Tooltip("Strikes after which the pulse lesson gives way to the status line.")]
         int _lessonStrikes = 4;
 
+        [SerializeField, Range(0f, 1f), Tooltip("Seconds a new step takes to fade in.")]
+        float _fadeIn = 0.22f;
+
         readonly StringBuilder _builder = new StringBuilder(256);
-        TextMesh _text;
-        Renderer _renderer;
-        MaterialPropertyBlock _block;
-        Texture _fontTexture;
-        bool _scaled;
+        TMP_Text _text;
+        float _shownTime = -100f;
         int _shownKey = int.MinValue;
+        int _shownStep = int.MinValue;
         int _strikes;
         float _lastCrackTime = -100f;
         bool _forged;
@@ -77,9 +82,7 @@ namespace KineticForge.Feedback
 
         void Awake()
         {
-            _text = GetComponent<TextMesh>();
-            _renderer = GetComponent<Renderer>();
-            _block = new MaterialPropertyBlock();
+            _text = GetComponent<TMP_Text>();
             _onResonated = HandleResonated;
             _onForged = HandleForged;
             _onPhaseChanged = HandlePhaseChanged;
@@ -87,8 +90,9 @@ namespace KineticForge.Feedback
             _onSigilSet = () => _sigilSetTime = Time.time;
             _onQuenched = () => _quenchedTime = Time.time;
             _text.richText = true;
-            _text.anchor = TextAnchor.MiddleCenter;
-            _text.alignment = TextAlignment.Center;
+            _text.alignment = TextAlignmentOptions.Center;
+            _text.textWrappingMode = TextWrappingModes.NoWrap;
+            ApplyLineHeight();
         }
 
         void OnEnable()
@@ -153,14 +157,61 @@ namespace KineticForge.Feedback
             int key = ComputeKey();
             if (key != _shownKey)
             {
+                // A new step fades in; live readouts within a step (counts, meters) update in place.
+                int step = ComputeStepKey();
+                if (step != _shownStep)
+                {
+                    _shownStep = step;
+                    _shownTime = Time.unscaledTime;
+                }
+
                 _shownKey = key;
                 _text.text = BuildText();
             }
 
-            SyncFontTexture();
-            if (!_scaled)
+            float alpha = _fadeIn > 0f ? Mathf.Clamp01((Time.unscaledTime - _shownTime) / _fadeIn) : 1f;
+            alpha = alpha * alpha * (3f - 2f * alpha);
+            if (!Mathf.Approximately(_text.alpha, alpha))
             {
-                FitScale();
+                _text.alpha = alpha;
+            }
+        }
+
+        /// <summary>
+        /// Identifies the step being taught: the discrete stages only, without the live readouts that
+        /// <see cref="ComputeKey"/> also tracks, so a readout changing never restarts the fade.
+        /// </summary>
+        int ComputeStepKey()
+        {
+            unchecked
+            {
+                int key = 23;
+                if (_game != null)
+                {
+                    key = key * 31 + (int)_game.Phase;
+                    key = key * 31 + (int)_game.CurrentCalibrationStep;
+                    key = key * 31 + (_game.Phase == ForgePhase.Completion && _game.PhaseElapsed >= _forgeAgainDelay ? 1 : 0);
+                }
+
+                key = key * 31 + Mathf.Min(_carveStrikes, _lessonStrikes + 1);
+                key = key * 31 + Mathf.Min(_strikes, 1);
+                if (_sigil != null)
+                {
+                    key = key * 31 + (int)_sigil.Stage;
+                    key = key * 31 + (_sigil.Hint > 0f ? 1 : 0);
+                    key = key * 31 + (_sigil.Suspended ? 1 : 0);
+                    key = key * 31 + (Time.time - _sigilSetTime < 3f ? 1 : 0);
+                }
+
+                if (_quench != null)
+                {
+                    key = key * 31 + (int)_quench.Stage;
+                    key = key * 31 + (Time.time - _quenchedTime >= 1.5f ? 1 : 0);
+                }
+
+                key = key * 31 + (_forged ? 1 : 0);
+                key = key * 31 + (Time.time - _lastCrackTime < 3f ? 1 : 0);
+                return key;
             }
         }
 
@@ -494,16 +545,16 @@ namespace KineticForge.Feedback
             return _relic != null && _game != null && _relic.Charge > 0.9f && _game.LatestStability < 0.4f;
         }
 
-        int ScaledSize(float scale)
+        static string ScaledSize(float scale)
         {
-            // Legacy rich text takes absolute sizes; scale from the mesh's font size (0 means the font's default).
-            int baseSize = _text.fontSize > 0 ? _text.fontSize : (_text.font != null ? _text.font.fontSize : 32);
-            return Mathf.Max(1, Mathf.RoundToInt(baseSize * scale));
+            // TMP rich text takes relative sizes.
+            return Mathf.RoundToInt(scale * 100f).ToString(CultureInfo.InvariantCulture) + "%";
         }
 
         static void Title(StringBuilder b, string title)
         {
-            b.Append("<color=#ffc860><b>").Append(title).Append("</b></color>");
+            b.Append("<font=\"").Append(TitleFont).Append("\"><cspace=0.06em><color=#ffc860>").Append(title)
+                .Append("</color></cspace></font>");
         }
 
         static void Bar(StringBuilder b, float progress)
@@ -539,43 +590,24 @@ namespace KineticForge.Feedback
 
         #region Rendering
 
-        void SyncFontTexture()
+        void ApplyLineHeight()
         {
-            Font font = _text.font;
-            Texture texture = font != null && font.material != null ? font.material.mainTexture : null;
-            if (texture == null || texture == _fontTexture)
-            {
-                return;
-            }
-
-            // Dynamic fonts can rebuild their atlas; the shader always samples the current one.
-            _fontTexture = texture;
-            _renderer.GetPropertyBlock(_block);
-            _block.SetTexture(MainTexId, texture);
-            _renderer.SetPropertyBlock(_block);
+            _text.fontSize = FontSizeFor(_text.font, _lineHeight);
         }
 
-        void FitScale()
+        /// <summary>
+        /// The TextMesh Pro font size at which one line of 3D text is <paramref name="lineHeight"/> meters tall: TMP scales
+        /// points by 0.1 for 3D text, and a line spans the face's line height.
+        /// </summary>
+        /// <param name="font">Font asset, or null for a typical face.</param>
+        /// <param name="lineHeight">Line height in meters.</param>
+        /// <returns>The font size to assign.</returns>
+        public static float FontSizeFor(TMP_FontAsset font, float lineHeight)
         {
-            Bounds bounds = _renderer.bounds;
-            string text = _text.text;
-            if (bounds.size.y <= 1e-5f || string.IsNullOrEmpty(text))
-            {
-                return;
-            }
-
-            int lines = 1;
-            for (int i = 0; i < text.Length; i++)
-            {
-                if (text[i] == '\n')
-                {
-                    lines++;
-                }
-            }
-
-            float lineHeight = bounds.size.y / lines;
-            transform.localScale *= _lineHeight / lineHeight;
-            _scaled = true;
+            float ratio = font != null && font.faceInfo.pointSize > 0
+                ? font.faceInfo.lineHeight / font.faceInfo.pointSize * Mathf.Max(font.faceInfo.scale, 1e-3f)
+                : 1.2f;
+            return lineHeight / (TextScaleFactor * ratio);
         }
 
         #endregion

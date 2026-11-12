@@ -15,6 +15,8 @@ Shader "Kinetic Forge/Forge Metal"
         [NoScaleOffset] _CarveMap("Carve Map", 2D) = "black" {}
         _Heat("Heat", Range(0, 1)) = 0
         _HeatGlow("Heat Glow", Float) = 0.45
+        _OxideScale("Oxide Scale", Range(0, 1)) = 0.6
+        _OxideSize("Oxide Flake Frequency", Float) = 48
         [HDR] _RuneColor("Rune Color", Color) = (1, 0.55, 0.15, 1)
         _RuneGlow("Rune Glow", Float) = 1.6
         [HDR] _ChladniColor("Chladni Color", Color) = (0.35, 0.8, 1, 1)
@@ -51,6 +53,8 @@ Shader "Kinetic Forge/Forge Metal"
             half _HammerStrength;
             half _Heat;
             half _HeatGlow;
+            half _OxideScale;
+            float _OxideSize;
             half4 _RuneColor;
             half _RuneGlow;
             half4 _ChladniColor;
@@ -183,9 +187,10 @@ Shader "Kinetic Forge/Forge Metal"
                 UNITY_SETUP_INSTANCE_ID(input);
                 UNITY_SETUP_STEREO_EYE_INDEX_POST_VERTEX(input);
 
-                // A relic being poured exists only below the molten surface rising through its mold.
+                // A relic being poured exists only below the molten surface rising through its mold. The cut applies only
+                // while a pour is under way (fill below 1), so coals, melts and streams sharing this shader stay whole.
                 float pourHeight = input.positionOS.y / max(_FillHeight, 1e-4) + 0.5;
-                clip(_Fill * 1.02 - pourHeight);
+                clip(_Fill * 1.02 - pourHeight + step(0.999, _Fill) * 1e4);
                 float pourFront = (1.0 - step(0.999, _Fill)) * exp(-pow((pourHeight - _Fill * 1.02) / 0.035, 2.0));
 
                 float3 normalWS = normalize(input.normalWS);
@@ -205,14 +210,22 @@ Shader "Kinetic Forge/Forge Metal"
                 half crack = carve.b;
                 half heat = saturate(_Heat);
 
+                // Oxide scale: hot metal grows a mottled skin whose flakes are darker and glow less than the bright metal
+                // between them, and edges cool first. This breaks the glow up the way real hot bronze looks.
+                float3 oxideP = input.positionOS * _OxideSize;
+                float oxide = ValueNoise(oxideP) * 0.6 + ValueNoise(oxideP * 3.1 + 7.0) * 0.4;
+                half flakes = smoothstep(0.5, 0.78, oxide) * _OxideScale * smoothstep(0.15, 0.5, heat);
+
                 half3 albedo = _BaseColor.rgb * lerp(1.0, 0.8, h);
                 albedo *= lerp(1.0, 0.35, smoothstep(0.3, 0.9, heat));
+                albedo *= lerp(1.0, 0.72, flakes);
                 albedo = lerp(albedo, albedo * 0.45, groove);
                 albedo = lerp(albedo, half3(0.02, 0.015, 0.01), crack);
 
                 half smoothness = _Smoothness * lerp(0.75, 1.0, h) * (1.0 - 0.4 * groove) * (1.0 - crack) * lerp(1.0, 0.55, heat);
 
-                half3 emission = Incandescence(heat) * _HeatGlow * (1.0 + groove * 1.5);
+                half3 emission = Incandescence(heat) * _HeatGlow * (1.0 + groove * 1.5) *
+                                 lerp(1.0, 0.55, flakes) * lerp(0.7, 1.0, input.faceMask);
                 emission += _RuneColor.rgb * rune * _RuneGlow * (0.35 + 0.65 * heat) * (0.85 + 0.15 * _Pulse);
 
                 // Chladni figures: glowing nodal lines of the summed plate modes.

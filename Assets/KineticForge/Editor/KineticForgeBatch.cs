@@ -43,7 +43,10 @@ namespace KineticForge.EditorTools
         /// </remarks>
         public static void ValidateShaders()
         {
-            string[] names = { "Kinetic Forge/Forge Metal", "Kinetic Forge/Forge Glow", "Kinetic Forge/Forge Text" };
+            string[] names =
+            {
+                "Kinetic Forge/Forge Metal", "Kinetic Forge/Forge Glow", "Kinetic Forge/Forge Text", "Kinetic Forge/Forge Panel",
+            };
             string[][] keywordSets =
             {
                 Array.Empty<string>(),
@@ -108,6 +111,55 @@ namespace KineticForge.EditorTools
             Finish(problems == 0 ? 0 : 1, problems == 0
                 ? "All shaders compiled for Quest (" + variants + " variants)."
                 : problems + " shader variants failed to compile.");
+        }
+
+        /// <summary>
+        /// Builds the Quest APK through <see cref="QuestBuild"/>, then exits Unity with code 0 on success.
+        /// </summary>
+        /// <remarks>
+        /// Pass <c>-buildTarget Android</c> to skip the target switch. Optional arguments: <c>-kfDevelopment</c> for a
+        /// development build, <c>-kfDiagnostics</c> for a test build with the in-headset diagnostics panel, and
+        /// <c>-kfOutput &lt;path&gt;</c> for the APK path.
+        /// </remarks>
+        public static void BuildQuestApk()
+        {
+            try
+            {
+                string[] args = Environment.GetCommandLineArgs();
+                bool development = Array.IndexOf(args, "-kfDevelopment") >= 0;
+                bool diagnostics = Array.IndexOf(args, "-kfDiagnostics") >= 0;
+                int outputIndex = Array.IndexOf(args, "-kfOutput");
+                string output = outputIndex >= 0 && outputIndex + 1 < args.Length ? args[outputIndex + 1] : null;
+
+                UnityEditor.Build.Reporting.BuildReport report = QuestBuild.Build(development, diagnostics, output);
+                bool succeeded = report != null &&
+                                 report.summary.result == UnityEditor.Build.Reporting.BuildResult.Succeeded;
+                Finish(succeeded ? 0 : 1, succeeded
+                    ? "Quest APK built at " + report.summary.outputPath + "."
+                    : "Quest APK build failed; see the errors above.");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                Finish(1, "Quest APK build failed with " + exception.GetType().Name + ".");
+            }
+        }
+
+        /// <summary>Bakes the sandbox scene's lighting, then exits Unity with code 0 when the bake completed.</summary>
+        public static void BakeSandboxLighting()
+        {
+            try
+            {
+                bool baked = SandboxSceneBuilder.BakeLighting();
+                Finish(baked ? 0 : 1, baked
+                    ? "Forge lighting baked: " + LightmapSettings.lightmaps.Length + " lightmap(s)."
+                    : "The lighting bake failed.");
+            }
+            catch (Exception exception)
+            {
+                Debug.LogException(exception);
+                Finish(1, "The lighting bake failed with " + exception.GetType().Name + ".");
+            }
         }
 
         /// <summary>Rebuilds only the sandbox scene, then exits Unity. Quicker than a full setup after code changes.</summary>

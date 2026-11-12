@@ -51,6 +51,10 @@ namespace KineticForge.Tests
             Assert.IsNotNull(Object.FindAnyObjectByType<ResonanceWall>(), "the forge has a Resonance Wall");
             MoltenPour pour = Object.FindAnyObjectByType<MoltenPour>();
             Assert.IsTrue(pour != null && pour.IsPouring, "the intro pours the relic");
+            ForgeDiagnostics diagnostics = Object.FindAnyObjectByType<ForgeDiagnostics>();
+            Assert.IsTrue(diagnostics != null && ForgeDiagnostics.IsCompiledIn, "the Editor carries the diagnostics panel");
+            Assert.IsFalse(diagnostics.GetComponent<MeshRenderer>().enabled, "diagnostics start hidden in the Editor");
+            Assert.AreEqual(0, diagnostics.ErrorCount, "nothing logged an error while the sandbox started");
 
             SceneManager.SetActiveScene(previous);
             yield return SceneManager.UnloadSceneAsync(sandbox);
