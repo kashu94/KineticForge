@@ -49,6 +49,8 @@ namespace KineticForge.Crafting
         RelicCarvingSurface _surface;
         CarvingCursor _cursor;
         RelicStabilizer _stabilizer;
+        RelicResonance _resonance;
+        RelicSigil _sigil;
         Rigidbody _body;
         float _lastStrikeTime = float.NegativeInfinity;
         float _lastPrecision;
@@ -74,12 +76,12 @@ namespace KineticForge.Crafting
         /// <returns>True when a strike was published.</returns>
         public bool Strike(ForgeHand hand, float intensity)
         {
+            float now = Time.unscaledTime;
             if (!_surface.IsAcceptingStrikes || !_surface.TryGetActiveMark(out Vector3 mark, out _))
             {
-                return false;
+                return RingWithoutCarving(hand, intensity, now);
             }
 
-            float now = Time.unscaledTime;
             if (now - _lastStrikeTime < _strikeCooldown)
             {
                 return false;
@@ -104,8 +106,37 @@ namespace KineticForge.Crafting
                     stability.ToString("0.00", CultureInfo.InvariantCulture) + ").", this);
             }
 
+            int activeMark = _surface.ActiveIndex;
+            int struckBefore = _surface.StruckCount;
             ForgeEvents.RaiseChiselStrike(new ChiselStrikeEvent(_body, hand, point, normal, strength, precision));
             ApplyRecoil(normal, strength);
+
+            // The surface carves during the event, so a raised count tells which mark this strike carved.
+            if (_resonance != null)
+            {
+                _resonance.ApplyStrike(hand, point, normal, strength, precision,
+                    _surface.StruckCount > struckBefore ? activeMark : -1);
+            }
+            return true;
+        }
+
+        /// <summary>
+        /// While a sigil is awakening, strikes ring the relic to shape its Chladni figure but carve nothing, so they are
+        /// not published as chisel strikes and never count toward forging progress.
+        /// </summary>
+        bool RingWithoutCarving(ForgeHand hand, float intensity, float now)
+        {
+            if (_sigil == null || !_sigil.IsAwakening || _resonance == null || now - _lastStrikeTime < _strikeCooldown)
+            {
+                return false;
+            }
+
+            _lastStrikeTime = now;
+            _cursor.GetStrikePoint(out Vector3 point, out Vector3 normal);
+            float strength = ForgeMath.Sanitize01(intensity, 1f);
+            _strikeCount++;
+            ApplyRecoil(normal, strength);
+            _resonance.ApplyStrike(hand, point, normal, strength, 0f, -1);
             return true;
         }
 
@@ -114,6 +145,8 @@ namespace KineticForge.Crafting
             _surface = GetComponent<RelicCarvingSurface>();
             _cursor = GetComponent<CarvingCursor>();
             _stabilizer = GetComponent<RelicStabilizer>();
+            _resonance = GetComponent<RelicResonance>();
+            _sigil = GetComponent<RelicSigil>();
             _body = GetComponent<Rigidbody>();
             _onTap = HandleTap;
         }
@@ -122,6 +155,20 @@ namespace KineticForge.Crafting
         {
             _stance.Enable(_stabilizer);
             ForgeEvents.MicroGestureTap += _onTap;
+        }
+
+        void Start()
+        {
+            // Components added after this one in the same frame are found here, once all have woken.
+            if (_resonance == null)
+            {
+                _resonance = GetComponent<RelicResonance>();
+            }
+
+            if (_sigil == null)
+            {
+                _sigil = GetComponent<RelicSigil>();
+            }
         }
 
         void OnDisable()

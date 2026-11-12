@@ -33,6 +33,83 @@ namespace KineticForge.EditorTools
         static double s_deadline;
 #endif
 
+        /// <summary>
+        /// Compiles every pass of the Kinetic Forge shaders for Quest (Vulkan, Android), with and without the main lighting
+        /// and fog keywords, reports any error or warning, then exits Unity with code 0 when all compile.
+        /// </summary>
+        /// <remarks>
+        /// Checks the compiler directly rather than the shader's active subshader: outside rendering, batch mode reports
+        /// URP shaders, Lit included, as running their fallback.
+        /// </remarks>
+        public static void ValidateShaders()
+        {
+            string[] names = { "Kinetic Forge/Forge Metal", "Kinetic Forge/Forge Glow", "Kinetic Forge/Forge Text" };
+            string[][] keywordSets =
+            {
+                Array.Empty<string>(),
+                new[] { "_MAIN_LIGHT_SHADOWS_CASCADE", "_ADDITIONAL_LIGHTS", "_SHADOWS_SOFT", "FOG_EXP2", "INSTANCING_ON" },
+                new[] { "_ADDITIONAL_LIGHTS_VERTEX", "FOG_LINEAR", "STEREO_INSTANCING_ON", "INSTANCING_ON" },
+            };
+
+            int problems = 0;
+            int variants = 0;
+            for (int i = 0; i < names.Length; i++)
+            {
+                Shader shader = Shader.Find(names[i]);
+                if (shader == null)
+                {
+                    ForgeLog.Error(ForgeLogChannel.Core, LogSource, "SHADER_MISSING", names[i] + " was not found.", null);
+                    problems++;
+                    continue;
+                }
+
+                ShaderData.Subshader subshader = ShaderUtil.GetShaderData(shader).GetSubshader(0);
+                string passes = string.Empty;
+                for (int p = 0; p < subshader.PassCount; p++)
+                {
+                    ShaderData.Pass pass = subshader.GetPass(p);
+                    passes += (p > 0 ? ", " : string.Empty) + pass.Name;
+                    for (int k = 0; k < keywordSets.Length; k++)
+                    {
+                        for (int stage = 0; stage < 2; stage++)
+                        {
+                            UnityEditor.Rendering.ShaderType type = stage == 0
+                                ? UnityEditor.Rendering.ShaderType.Vertex
+                                : UnityEditor.Rendering.ShaderType.Fragment;
+                            ShaderData.VariantCompileInfo info = pass.CompileVariant(type, keywordSets[k],
+                                UnityEditor.Rendering.ShaderCompilerPlatform.Vulkan, BuildTarget.Android, true);
+                            variants++;
+                            if (!info.Success)
+                            {
+                                problems++;
+                            }
+
+                            for (int m = 0; m < info.Messages.Length; m++)
+                            {
+                                ShaderMessage message = info.Messages[m];
+                                string text = names[i] + " / " + pass.Name + " / " + type + ": " + message.message + " " +
+                                              message.messageDetails + " (" + message.file + ":" + message.line + ")";
+                                if (message.severity == UnityEditor.Rendering.ShaderCompilerMessageSeverity.Error)
+                                {
+                                    ForgeLog.Error(ForgeLogChannel.Core, LogSource, "SHADER_ERROR", text, shader);
+                                }
+                                else
+                                {
+                                    ForgeLog.Warn(ForgeLogChannel.Core, LogSource, "SHADER_WARNING", text, shader);
+                                }
+                            }
+                        }
+                    }
+                }
+
+                ForgeLog.Info(ForgeLogChannel.Core, LogSource, "SHADER_CHECKED", names[i] + ": passes [" + passes + "].", shader);
+            }
+
+            Finish(problems == 0 ? 0 : 1, problems == 0
+                ? "All shaders compiled for Quest (" + variants + " variants)."
+                : problems + " shader variants failed to compile.");
+        }
+
         /// <summary>Rebuilds only the sandbox scene, then exits Unity. Quicker than a full setup after code changes.</summary>
         public static void RebuildSandboxScene()
         {

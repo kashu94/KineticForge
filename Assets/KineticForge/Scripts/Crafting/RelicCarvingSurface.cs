@@ -51,6 +51,9 @@ namespace KineticForge.Crafting
         [SerializeField, Tooltip("Strike marks in carving order, in face coordinates from -0.5 to 0.5.")]
         Vector2[] _pattern = CreateDefaultPattern();
 
+        [SerializeField, Tooltip("Grooves of the rune: pairs of mark indices carved as a line once both marks are carved.")]
+        Vector2Int[] _strokes = CreateDefaultStrokes();
+
         [SerializeField, Range(0.005f, 0.06f), Tooltip("Distance (m) from a mark at which aim quality reaches zero.")]
         float _strikeTolerance = 0.02f;
 
@@ -79,6 +82,9 @@ namespace KineticForge.Crafting
         [SerializeField, ColorUsage(false, true), Tooltip("Color of carved marks.")]
         Color _struckColor = new Color(2.4f, 1.5f, 0.55f);
 
+        [SerializeField, Tooltip("Hide the marker of a carved mark, for relics whose carved grooves show the rune.")]
+        bool _hideStruckMarkers = false;
+
         #endregion
 
         #region Runtime state
@@ -92,6 +98,7 @@ namespace KineticForge.Crafting
         float _height;
         int _struck;
         bool _accepting = true;
+        bool _gated;
         Transform[] _markers;
         Renderer[] _markerRenderers;
         MaterialPropertyBlock _block;
@@ -139,7 +146,115 @@ namespace KineticForge.Crafting
         public bool IsComplete => MarkCount > 0 && _struck >= MarkCount;
 
         /// <summary>True while strikes can carve marks.</summary>
-        public bool IsAcceptingStrikes => _accepting && !IsComplete && MarkCount > 0;
+        public bool IsAcceptingStrikes => _accepting && !_gated && !IsComplete && MarkCount > 0;
+
+        /// <summary>
+        /// True while the face can be aimed at: carving, or gated while its rune is still being chosen (see
+        /// <see cref="SetGate"/>), when strikes ring the relic without carving.
+        /// </summary>
+        public bool IsAimable => _accepting && !IsComplete && MarkCount > 0;
+
+        /// <summary>True while carving is held closed by <see cref="SetGate"/>.</summary>
+        public bool IsGated => _gated;
+
+        /// <summary>
+        /// Holds carving closed, or opens it again. While gated, marks are hidden and strikes carve nothing; the face can
+        /// still be aimed at (<see cref="IsAimable"/>).
+        /// </summary>
+        /// <param name="gated">True to close carving.</param>
+        public void SetGate(bool gated)
+        {
+            if (_gated != gated)
+            {
+                _gated = gated;
+                RefreshMarkers();
+            }
+        }
+
+        /// <summary>
+        /// Replaces the rune with new marks and grooves and starts it from its first mark. Marker visuals are rebuilt
+        /// when the mark count changes.
+        /// </summary>
+        /// <param name="marks">Marks in carving order, in face coordinates.</param>
+        /// <param name="strokes">Grooves as pairs of mark indices.</param>
+        public void SetPattern(Vector2[] marks, Vector2Int[] strokes)
+        {
+            int previousCount = MarkCount;
+            _pattern = marks != null ? (Vector2[])marks.Clone() : Array.Empty<Vector2>();
+            _strokes = strokes != null ? (Vector2Int[])strokes.Clone() : Array.Empty<Vector2Int>();
+            _struck = 0;
+            if (_markers != null && previousCount != MarkCount)
+            {
+                for (int i = 0; i < _markers.Length; i++)
+                {
+                    if (_markers[i] != null)
+                    {
+                        Destroy(_markers[i].gameObject);
+                    }
+                }
+
+                _markers = null;
+                if (_showMarkers)
+                {
+                    CreateMarkers();
+                }
+            }
+
+            RefreshMarkers();
+        }
+
+        /// <summary>Number of grooves in the rune.</summary>
+        public int StrokeCount => _strokes != null ? _strokes.Length : 0;
+
+        /// <summary>Mark indices joined by groove <paramref name="index"/>.</summary>
+        /// <param name="index">Groove index.</param>
+        /// <returns>The two mark indices.</returns>
+        public Vector2Int GetStroke(int index)
+        {
+            return _strokes[index];
+        }
+
+        /// <summary>Share of the face the rune and cursor may use.</summary>
+        public float UsableArea => _usableArea;
+
+        /// <summary>
+        /// Maps face coordinates (-0.5 to 0.5 over the usable area) to face UV (0 to 1 over the whole face), the space
+        /// of the relic's carve map and plate modes.
+        /// </summary>
+        /// <param name="faceCoordinates">Face coordinates.</param>
+        /// <returns>Face UV.</returns>
+        public Vector2 FaceToUV(Vector2 faceCoordinates)
+        {
+            return new Vector2(0.5f + faceCoordinates.x * _usableArea, 0.5f + faceCoordinates.y * _usableArea);
+        }
+
+        /// <summary>Projects a world point onto the face and returns its face UV, 0 to 1 over the whole face.</summary>
+        /// <param name="worldPoint">World-space point.</param>
+        /// <returns>Face UV, unclamped.</returns>
+        public Vector2 WorldToUV(Vector3 worldPoint)
+        {
+            EnsureGeometry();
+            Vector3 local = transform.InverseTransformPoint(worldPoint) - _faceCenter;
+            return new Vector2(
+                0.5f + Vector3.Dot(local, _right) / Mathf.Max(1e-6f, _width),
+                0.5f + Vector3.Dot(local, _up) / Mathf.Max(1e-6f, _height));
+        }
+
+        /// <summary>The face in the relic's local space: its center, unit axes and full size.</summary>
+        /// <param name="center">Local center of the face.</param>
+        /// <param name="right">Local unit direction of increasing U.</param>
+        /// <param name="up">Local unit direction of increasing V.</param>
+        /// <param name="normal">Local unit outward normal.</param>
+        /// <param name="size">Local width and height of the whole face.</param>
+        public void GetLocalFace(out Vector3 center, out Vector3 right, out Vector3 up, out Vector3 normal, out Vector2 size)
+        {
+            EnsureGeometry();
+            center = _faceCenter;
+            right = _right;
+            up = _up;
+            normal = _normal;
+            size = new Vector2(_width, _height);
+        }
 
         /// <summary>Distance (m) from a mark at which aim quality reaches zero.</summary>
         public float StrikeTolerance => _strikeTolerance;
@@ -249,6 +364,11 @@ namespace KineticForge.Crafting
                 _pattern = Array.Empty<Vector2>();
             }
 
+            if (_strokes == null)
+            {
+                _strokes = Array.Empty<Vector2Int>();
+            }
+
             EnsureGeometry();
         }
 
@@ -275,7 +395,7 @@ namespace KineticForge.Crafting
         void Update()
         {
             int active = ActiveIndex;
-            if (_markers == null || active < 0 || _markers[active] == null)
+            if (_markers == null || _gated || active < 0 || _markers[active] == null)
             {
                 return;
             }
@@ -425,7 +545,7 @@ namespace KineticForge.Crafting
                 _block.SetColor(BaseColorId, color);
                 _block.SetColor(ColorId, color);
                 _markerRenderers[i].SetPropertyBlock(_block);
-                SetMarkerScale(i, _markerSize * (struck ? 1.35f : 1f));
+                SetMarkerScale(i, _gated || (struck && _hideStruckMarkers) ? 0f : _markerSize * (struck ? 1.35f : 1f));
             }
         }
 
@@ -460,6 +580,20 @@ namespace KineticForge.Crafting
                 new Vector2(-0.09f, -0.06f),
                 new Vector2(0.09f, -0.06f),
                 new Vector2(0f, -0.10f),
+            };
+        }
+
+        /// <summary>
+        /// Grooves of the default rune: the triangle's three sides, then the anvil's post and crossbar.
+        /// </summary>
+        /// <returns>A new array of mark index pairs.</returns>
+        public static Vector2Int[] CreateDefaultStrokes()
+        {
+            return new[]
+            {
+                new Vector2Int(0, 1), new Vector2Int(1, 2), new Vector2Int(2, 3), new Vector2Int(3, 4),
+                new Vector2Int(4, 5), new Vector2Int(5, 6), new Vector2Int(6, 0),
+                new Vector2Int(7, 8), new Vector2Int(8, 11), new Vector2Int(9, 10),
             };
         }
 

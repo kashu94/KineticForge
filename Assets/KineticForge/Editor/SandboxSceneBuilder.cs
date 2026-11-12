@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.IO;
 using KineticForge.Core;
 using KineticForge.Crafting;
+using KineticForge.Feedback;
 using KineticForge.Physics;
 using KineticForge.Platform;
 using KineticForge.Tracking;
@@ -39,11 +40,12 @@ namespace KineticForge.EditorTools
         internal const string ScenePath = SceneFolder + "/Sandbox.unity";
 
         const string SceneFolder = "Assets/KineticForge/Scenes";
-        const string MaterialFolder = "Assets/KineticForge/Materials";
-        const float AnvilHeight = 0.9f;
+        const float AnvilHeight = 0.78f;
         const float AnvilDistance = 0.55f;
-        const float RelicSize = 0.28f;
+        const float HoldLift = 0.22f;
+        const float EditorEyeHeight = 1.45f;
         const float RelicMass = 20f;
+        static readonly Vector3 RelicSize = new Vector3(0.3f, 0.3f, 0.08f);
 
 #if KF_META_XR_CORE
         // GUIDs of Prefabs/OVRCameraRig.prefab and Prefabs/OVRHandPrefab.prefab in com.meta.xr.sdk.core.
@@ -82,20 +84,20 @@ namespace KineticForge.EditorTools
             UrpSetup.EnsureUrp();
             Scene scene = EditorSceneManager.NewScene(NewSceneSetup.DefaultGameObjects, NewSceneMode.Single);
             Camera defaultCamera = Camera.main;
-            SetUpLighting();
 
-            Material floorMaterial = GetOrCreateLitMaterial("Forge Floor", new Color(0.16f, 0.15f, 0.14f), 0f, 0.2f);
-            Material anvilMaterial = GetOrCreateLitMaterial("Forge Anvil", new Color(0.22f, 0.22f, 0.24f), 0.85f, 0.45f);
-            Material relicMaterial = GetOrCreateLitMaterial("Relic Bronze", new Color(0.80f, 0.50f, 0.22f), 1f, 0.62f);
-            Material glowMaterial = GetOrCreateUnlitMaterial("Rune Glow", new Color(1f, 0.62f, 0.2f));
+            ForgeEnvironmentBuilder.Palette palette = ForgeEnvironmentBuilder.CreatePalette();
+            ForgeEnvironmentBuilder.SetUpAtmosphere();
+            Vector3 anvilBase = new Vector3(0f, 0f, AnvilDistance);
+            GameObject forge = ForgeEnvironmentBuilder.BuildForge(palette, anvilBase, AnvilHeight);
+            Transform water = ForgeEnvironmentBuilder.BuildTrough(palette, new Vector3(0.66f, 0f, 0.82f));
 
-            CreatePrimitive(PrimitiveType.Plane, "Forge Floor", Vector3.zero, Vector3.one, floorMaterial);
-            CreatePrimitive(PrimitiveType.Cube, "Anvil",
-                new Vector3(0f, AnvilHeight * 0.5f, AnvilDistance), new Vector3(0.45f, AnvilHeight, 0.3f), anvilMaterial);
-
-            Vector3 relicPosition = new Vector3(0f, AnvilHeight + RelicSize * 0.5f + 0.002f, AnvilDistance);
-            GameObject relic = CreateRelic(relicPosition, relicMaterial, glowMaterial);
-            GameObject systems = CreateSystems();
+            Vector3 relicPosition = new Vector3(0f, AnvilHeight + RelicSize.y * 0.5f + 0.004f, AnvilDistance);
+            GameObject relic = CreateRelic(relicPosition, palette, water);
+            GameObject systems = CreateSystems(palette);
+            CreateGuide(palette);
+            CreatePour(palette, systems, relic, relicPosition);
+            CreateWall(palette, relic);
+            CreateMixedReality(systems, forge);
 
             bool metaRig = false;
 #if KF_META_XR_CORE
@@ -105,10 +107,10 @@ namespace KineticForge.EditorTools
 
             if (!metaRig && defaultCamera != null)
             {
-                Vector3 eye = new Vector3(0f, 1.6f, -0.35f);
-                Vector3 lookTarget = relicPosition + Vector3.up * 0.2f;
+                Vector3 eye = new Vector3(0f, EditorEyeHeight, 0f);
+                Vector3 lookTarget = relicPosition + Vector3.up * (HoldLift + 0.12f);
                 defaultCamera.transform.SetPositionAndRotation(eye, Quaternion.LookRotation(lookTarget - eye));
-                defaultCamera.nearClipPlane = 0.05f;
+                ForgeEnvironmentBuilder.ConfigureCamera(defaultCamera);
             }
 
             EnsureFolder(SceneFolder);
@@ -117,51 +119,166 @@ namespace KineticForge.EditorTools
 
             ForgeLog.Info(ForgeLogChannel.Core, LogSource, "SANDBOX_CREATED",
                 "Saved " + ScenePath + (metaRig ? " with OVRCameraRig, body and hand tracking." : " with the default camera.") +
-                " Press Play: hold Space to brace, right-drag to aim, left-click to strike, N to nudge. Relic '" +
+                " Press Play: hold Space to brace, right-drag to aim, left-click to strike in rhythm, N to nudge. Relic '" +
                 relic.name + "'.", systems);
             return systems;
         }
 
-        static GameObject CreateRelic(Vector3 position, Material relicMaterial, Material glowMaterial)
+        static GameObject CreateRelic(Vector3 position, ForgeEnvironmentBuilder.Palette palette, Transform water)
         {
-            GameObject relic = CreatePrimitive(PrimitiveType.Cube, "Relic", position, Vector3.one * RelicSize, relicMaterial);
+            GameObject relic = new GameObject("Relic");
+            relic.transform.position = position;
+            relic.AddComponent<MeshFilter>().sharedMesh = GetOrCreateRelicMesh();
+            MeshRenderer renderer = relic.AddComponent<MeshRenderer>();
+            renderer.sharedMaterial = palette.RelicMetal;
+            BoxCollider box = relic.AddComponent<BoxCollider>();
+            box.size = RelicSize;
+
             Rigidbody body = relic.AddComponent<Rigidbody>();
             body.mass = RelicMass;
             body.interpolation = RigidbodyInterpolation.Interpolate;
             body.collisionDetectionMode = CollisionDetectionMode.ContinuousDynamic;
 
-            relic.AddComponent<RelicStabilizer>();
+            // A gentler wobble than the default: the light tablet is aimed at, so an unbraced stance should unsettle it,
+            // not spin it.
+            RelicStabilizer stabilizer = relic.AddComponent<RelicStabilizer>();
+            ForgeEnvironmentBuilder.SetFloat(stabilizer, "_maxWobbleAcceleration", 4f);
             relic.AddComponent<RelicGrabDriver>();
-            relic.AddComponent<RelicHoldSimulator>();
+
+            // The hold simulator doubles as the forge's levitating cradle: it lifts the relic off the anvil to working
+            // height and lets it drift gently, on Quest and in the Editor alike.
+            RelicHoldSimulator hold = relic.AddComponent<RelicHoldSimulator>();
+            ForgeEnvironmentBuilder.SetVector3(hold, "_holdOffset", new Vector3(0f, HoldLift, 0f));
+            ForgeEnvironmentBuilder.SetFloat(hold, "_carryAmplitude", 0.012f);
+            ForgeEnvironmentBuilder.SetFloat(hold, "_carryFrequency", 0.12f);
 
             RelicCarvingSurface surface = relic.AddComponent<RelicCarvingSurface>();
+            ForgeEnvironmentBuilder.SetObject(surface, "_markerMaterial", palette.RuneGlow);
+            ForgeEnvironmentBuilder.SetBool(surface, "_hideStruckMarkers", true);
+            ForgeEnvironmentBuilder.SetFloat(surface, "_markerSize", 0.01f);
+
             CarvingCursor cursor = relic.AddComponent<CarvingCursor>();
+            ForgeEnvironmentBuilder.SetObject(cursor, "_cursorMaterial", palette.RuneGlow);
+
             relic.AddComponent<ChiselStrikeController>();
+            RelicResonance resonance = relic.AddComponent<RelicResonance>();
+            relic.AddComponent<RelicSigil>();
+            relic.AddComponent<RelicForgeRenderer>();
 
-            if (glowMaterial != null)
-            {
-                SetSerializedObject(surface, "_markerMaterial", glowMaterial);
-                SetSerializedObject(cursor, "_cursorMaterial", glowMaterial);
-            }
+            ChladniSand sand = relic.AddComponent<ChladniSand>();
+            ForgeEnvironmentBuilder.SetObject(sand, "_material", palette.Sand);
 
+            GroundingFlow grounding = relic.AddComponent<GroundingFlow>();
+            ForgeEnvironmentBuilder.SetObject(grounding, "_streamMaterial", palette.Energy);
+            ForgeEnvironmentBuilder.SetObject(grounding, "_rippleMaterial", palette.Ring);
+
+            ResonanceRing ring = relic.AddComponent<ResonanceRing>();
+            ForgeEnvironmentBuilder.SetObject(ring, "_material", palette.Ring);
+
+            AudioSource audio = relic.AddComponent<AudioSource>();
+            audio.playOnAwake = false;
+            audio.spatialBlend = 1f;
+            audio.rolloffMode = AudioRolloffMode.Logarithmic;
+            audio.minDistance = 0.6f;
+            audio.maxDistance = 20f;
+            relic.AddComponent<RelicSynth>();
+
+            RelicQuench quench = relic.AddComponent<RelicQuench>();
+            ForgeEnvironmentBuilder.SetObject(quench, "_water", water);
+            ForgeEnvironmentBuilder.SetObject(quench, "_steamMaterial", palette.Steam);
+
+            // Under the relic: its heat lights the anvil and the player's hands without flooding the carved face.
+            Light glow = ForgeEnvironmentBuilder.PointLight("Relic Glow", relic.transform,
+                position + Vector3.down * 0.24f + Vector3.forward * 0.06f, new Color(1f, 0.55f, 0.2f), 1.4f, 1.2f);
+            ForgeFlicker flicker = glow.gameObject.AddComponent<ForgeFlicker>();
+            ForgeEnvironmentBuilder.SetFloat(flicker, "_intensity", 1.4f);
+            ForgeEnvironmentBuilder.SetObject(flicker, "_heatSource", resonance);
             return relic;
         }
 
-        static GameObject CreateSystems()
+        static Mesh GetOrCreateRelicMesh()
+        {
+            // Saved so the Editor shows the tablet; at runtime the relic forge renderer builds its own carvable copy.
+            Mesh mesh = RelicForgeMesh.Build(RelicSize, RelicForgeMesh.DefaultResolution);
+            Mesh existing = AssetDatabase.LoadAssetAtPath<Mesh>(ForgeEnvironmentBuilder.RelicMeshPath);
+            if (existing != null)
+            {
+                EditorUtility.CopySerialized(mesh, existing);
+                Object.DestroyImmediate(mesh);
+                return existing;
+            }
+
+            EnsureFolder(Path.GetDirectoryName(ForgeEnvironmentBuilder.RelicMeshPath)?.Replace('\\', '/'));
+            AssetDatabase.CreateAsset(mesh, ForgeEnvironmentBuilder.RelicMeshPath);
+            return mesh;
+        }
+
+        static void CreatePour(ForgeEnvironmentBuilder.Palette palette, GameObject systems, GameObject relic, Vector3 relicPosition)
+        {
+            // Hangs above and to the left of the cradled relic, so its tipped lip sits over the relic's center.
+            Vector3 pivot = new Vector3(-0.12f, relicPosition.y + HoldLift + 0.3f, relicPosition.z);
+            Transform tilt = ForgeEnvironmentBuilder.BuildCrucible(palette, pivot, out Transform lip, out Transform stream);
+            MoltenPour pour = systems.AddComponent<MoltenPour>();
+            ForgeEnvironmentBuilder.SetObject(pour, "_relic", relic.GetComponent<RelicForgeRenderer>());
+            ForgeEnvironmentBuilder.SetObject(pour, "_crucible", tilt);
+            ForgeEnvironmentBuilder.SetObject(pour, "_hoist", tilt.parent);
+            ForgeEnvironmentBuilder.SetObject(pour, "_lip", lip);
+            ForgeEnvironmentBuilder.SetObject(pour, "_stream", stream);
+        }
+
+        static void CreateWall(ForgeEnvironmentBuilder.Palette palette, GameObject relic)
+        {
+            // Front left of the player: in view from the Editor camera, a short head turn on Quest.
+            GameObject wall = ForgeEnvironmentBuilder.BuildWall(palette, new Vector3(-1.1f, 1.3f, 1.75f), new Vector3(0f, 1.3f, 0f));
+            AudioSource audio = wall.AddComponent<AudioSource>();
+            audio.playOnAwake = false;
+            audio.spatialBlend = 1f;
+            audio.minDistance = 0.8f;
+            audio.maxDistance = 20f;
+            ResonanceWall resonanceWall = wall.AddComponent<ResonanceWall>();
+            ForgeEnvironmentBuilder.SetObject(resonanceWall, "_plaqueMaterial", palette.RelicMetal);
+            ForgeEnvironmentBuilder.SetObject(resonanceWall, "_quench", relic.GetComponent<RelicQuench>());
+        }
+
+        static void CreateMixedReality(GameObject systems, GameObject forge)
+        {
+            MixedRealityMode mode = systems.AddComponent<MixedRealityMode>();
+            SerializedObject serialized = new SerializedObject(mode);
+            SerializedProperty hide = serialized.FindProperty("_hideInMixedReality");
+            string[] parts = { "Floor", "Hall", "Furnace" };
+            hide.arraySize = parts.Length;
+            for (int i = 0; i < parts.Length; i++)
+            {
+                Transform part = forge.transform.Find(parts[i]);
+                hide.GetArrayElementAtIndex(i).objectReferenceValue = part != null ? part.gameObject : null;
+            }
+
+            serialized.ApplyModifiedPropertiesWithoutUndo();
+        }
+
+        static GameObject CreateSystems(ForgeEnvironmentBuilder.Palette palette)
         {
             GameObject systems = new GameObject("Kinetic Forge Systems");
-            systems.AddComponent<MetaRuntimeGuard>();
+            MetaRuntimeGuard guard = systems.AddComponent<MetaRuntimeGuard>();
+            ForgeEnvironmentBuilder.SetFloat(guard, "_fallbackEyeHeight", EditorEyeHeight);
+            ForgeEnvironmentBuilder.SetFloat(guard, "_fallbackPitch", 18f);
             systems.AddComponent<ForgeGameManager>();
             systems.AddComponent<StanceTracker>();
             systems.AddComponent<XRFramePacing>();
             systems.AddComponent<XRSessionMonitor>();
 
+            ForgeSparks sparks = systems.AddComponent<ForgeSparks>();
+            ForgeEnvironmentBuilder.SetObject(sparks, "_sparkMaterial", palette.Spark);
+            ForgeEnvironmentBuilder.SetObject(sparks, "_flashMaterial", palette.Ring);
+
             CreateHandSystems(systems.transform, ForgeHand.Left, mouseFallback: false);
-            CreateHandSystems(systems.transform, ForgeHand.Right, mouseFallback: true);
+            GameObject right = CreateHandSystems(systems.transform, ForgeHand.Right, mouseFallback: true);
+            HandPointerAim aim = right.AddComponent<HandPointerAim>();
+            SetSerializedInt(aim, "_hand", (int)ForgeHand.Right);
             return systems;
         }
 
-        static void CreateHandSystems(Transform parent, ForgeHand hand, bool mouseFallback)
+        static GameObject CreateHandSystems(Transform parent, ForgeHand hand, bool mouseFallback)
         {
             GameObject handObject = new GameObject(hand + " Hand Input");
             handObject.transform.SetParent(parent, false);
@@ -172,94 +289,32 @@ namespace KineticForge.EditorTools
 
             HandGrabber grabber = handObject.AddComponent<HandGrabber>();
             SetSerializedInt(grabber, "_hand", (int)hand);
+            return handObject;
         }
 
-        static void SetUpLighting()
+        static void CreateGuide(ForgeEnvironmentBuilder.Palette palette)
         {
-            Light sun = Object.FindAnyObjectByType<Light>();
-            if (sun == null)
-            {
-                return;
-            }
-
-            sun.transform.rotation = Quaternion.Euler(50f, -30f, 0f);
-            sun.color = new Color(1f, 0.93f, 0.84f);
-            sun.intensity = 1.2f;
-            sun.shadows = LightShadows.Soft;
-        }
-
-        static GameObject CreatePrimitive(PrimitiveType type, string name, Vector3 position, Vector3 scale, Material material)
-        {
-            GameObject primitive = GameObject.CreatePrimitive(type);
-            primitive.name = name;
-            primitive.transform.SetPositionAndRotation(position, Quaternion.identity);
-            primitive.transform.localScale = scale;
-
-            if (material != null && primitive.TryGetComponent(out Renderer renderer))
-            {
-                renderer.sharedMaterial = material;
-            }
-
-            return primitive;
-        }
-
-        static Material GetOrCreateLitMaterial(string name, Color color, float metallic, float smoothness)
-        {
-            return GetOrCreateMaterial(name, "Universal Render Pipeline/Lit", color, metallic, smoothness);
-        }
-
-        static Material GetOrCreateUnlitMaterial(string name, Color color)
-        {
-            return GetOrCreateMaterial(name, "Universal Render Pipeline/Unlit", color, -1f, -1f);
-        }
-
-        static Material GetOrCreateMaterial(string name, string shaderName, Color color, float metallic, float smoothness)
-        {
-            // Existing materials are reused untouched, so hand-tuned looks survive a rebuild of the scene.
-            string path = MaterialFolder + "/" + name + ".mat";
-            Material existing = AssetDatabase.LoadAssetAtPath<Material>(path);
-            if (existing != null)
-            {
-                return existing;
-            }
-
-            Shader shader = Shader.Find(shaderName);
-            if (shader == null)
-            {
-                return null;
-            }
-
-            EnsureFolder(MaterialFolder);
-            Material material = new Material(shader) { name = name };
-            material.SetColor("_BaseColor", color);
-            if (metallic >= 0f && material.HasProperty("_Metallic"))
-            {
-                material.SetFloat("_Metallic", metallic);
-            }
-
-            if (smoothness >= 0f && material.HasProperty("_Smoothness"))
-            {
-                material.SetFloat("_Smoothness", smoothness);
-            }
-
-            AssetDatabase.CreateAsset(material, path);
-            return material;
+            GameObject guide = new GameObject("Forge Guide");
+            guide.transform.SetPositionAndRotation(new Vector3(0f, 1.5f, 1.25f), Quaternion.identity);
+            TextMesh text = guide.AddComponent<TextMesh>();
+            text.font = Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+            text.fontSize = 48;
+            text.characterSize = 0.1f;
+            text.color = new Color(1f, 0.93f, 0.85f);
+            text.anchor = TextAnchor.MiddleCenter;
+            text.alignment = TextAlignment.Center;
+            text.richText = true;
+            text.text = "KINETIC FORGE";
+            MeshRenderer renderer = guide.GetComponent<MeshRenderer>();
+            renderer.sharedMaterial = palette.Text;
+            renderer.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
+            renderer.receiveShadows = false;
+            guide.AddComponent<ForgeGuide>();
         }
 
         static void EnsureFolder(string path)
         {
-            if (AssetDatabase.IsValidFolder(path))
-            {
-                return;
-            }
-
-            string parent = Path.GetDirectoryName(path)?.Replace('\\', '/');
-            if (!string.IsNullOrEmpty(parent))
-            {
-                EnsureFolder(parent);
-            }
-
-            AssetDatabase.CreateFolder(parent, Path.GetFileName(path));
+            ForgeEnvironmentBuilder.EnsureFolder(path);
         }
 
         static void AddSceneToBuildSettings(string path)
@@ -295,21 +350,6 @@ namespace KineticForge.EditorTools
             serialized.ApplyModifiedPropertiesWithoutUndo();
         }
 
-        static void SetSerializedObject(Object target, string propertyName, Object value)
-        {
-            SerializedObject serialized = new SerializedObject(target);
-            SerializedProperty property = serialized.FindProperty(propertyName);
-            if (property == null)
-            {
-                ForgeLog.Warn(ForgeLogChannel.Core, LogSource, "SERIALIZED_FIELD_MISSING",
-                    target.GetType().Name + "." + propertyName + " was not found; set it in the Inspector.", target);
-                return;
-            }
-
-            property.objectReferenceValue = value;
-            serialized.ApplyModifiedPropertiesWithoutUndo();
-        }
-
 #if KF_META_XR_CORE
         [MenuItem("Kinetic Forge/Configure Project for Body and Hand Tracking", false, 20)]
         static void ConfigureProjectForTrackingMenu()
@@ -330,11 +370,31 @@ namespace KineticForge.EditorTools
             GameObject rig = (GameObject)PrefabUtility.InstantiatePrefab(rigPrefab);
             rig.transform.SetPositionAndRotation(Vector3.zero, Quaternion.identity);
 
+            // The forge has no sky: every eye clears to the fog color.
+            Camera[] eyes = rig.GetComponentsInChildren<Camera>(true);
+            for (int i = 0; i < eyes.Length; i++)
+            {
+                ForgeEnvironmentBuilder.ConfigureCamera(eyes[i]);
+            }
+
             // Crouch is measured against real heights, so the origin must be the floor; the prefab ships at eye level.
             OVRManager manager = rig.GetComponentInChildren<OVRManager>(true);
             if (manager != null)
             {
                 SetSerializedInt(manager, "_trackingOriginType", (int)OVRManager.TrackingOrigin.FloorLevel);
+
+                // Mixed reality: passthrough starts with the app, its layer hidden until the player asks for their room.
+                SerializedObject managerSettings = new SerializedObject(manager);
+                SerializedProperty passthrough = managerSettings.FindProperty("isInsightPassthroughEnabled");
+                if (passthrough != null)
+                {
+                    passthrough.boolValue = true;
+                    managerSettings.ApplyModifiedPropertiesWithoutUndo();
+                }
+
+                OVRPassthroughLayer layer = manager.gameObject.AddComponent<OVRPassthroughLayer>();
+                layer.hidden = true;
+                EditorUtility.SetDirty(layer);
             }
 
             // Body bones are written as tracking-space positions under the skeleton, so it lives at the tracking origin.
@@ -436,6 +496,13 @@ namespace KineticForge.EditorTools
                 {
                     projectConfig.bodyTrackingSupport = OVRProjectConfig.FeatureSupport.Supported;
                     changes.Add("Body Tracking Support set to Supported");
+                    dirty = true;
+                }
+
+                if (projectConfig.insightPassthroughSupport == OVRProjectConfig.FeatureSupport.None)
+                {
+                    projectConfig.insightPassthroughSupport = OVRProjectConfig.FeatureSupport.Supported;
+                    changes.Add("Passthrough Support set to Supported");
                     dirty = true;
                 }
 

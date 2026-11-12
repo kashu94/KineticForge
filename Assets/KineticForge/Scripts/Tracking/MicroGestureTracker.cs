@@ -60,6 +60,9 @@ namespace KineticForge.Tracking
         [SerializeField, Tooltip("Strike with an index pinch on runtimes that never report microgestures.")]
         bool _pinchTapFallback = true;
 
+        [SerializeField, Tooltip("Let an index pinch tap even where microgestures work, so a pinch always strikes. Off: pinch only on runtimes without microgestures.")]
+        bool _pinchAlwaysTaps = true;
+
         [SerializeField, Range(0f, 0.5f), Tooltip("Slide (finger lengths) added by each Meta swipe microgesture. 0 ignores swipes.")]
         float _swipeStep = 0.12f;
 
@@ -359,7 +362,7 @@ namespace KineticForge.Tracking
                 _lastGesture = gesture;
             }
 
-            if (_pinchTapFallback && !_microgesturesSeen)
+            if (_pinchTapFallback && (_pinchAlwaysTaps || !_microgesturesSeen))
             {
                 bool pinching = hand.GetFingerIsPinching(OVRHand.HandFinger.Index);
                 if (pinching && !_wasPinching)

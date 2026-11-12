@@ -20,5 +20,6 @@
   <uses-permission android:name="com.oculus.permission.HAND_TRACKING" />
   <uses-feature android:name="com.oculus.software.body_tracking" android:required="false" />
   <uses-permission android:name="com.oculus.permission.BODY_TRACKING" />
+  <uses-feature android:name="com.oculus.feature.PASSTHROUGH" android:required="false" />
   <horizonos:uses-horizonos-sdk horizonos:minSdkVersion="60" horizonos:targetSdkVersion="207" />
 </manifest>

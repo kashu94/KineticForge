@@ -84,6 +84,22 @@ namespace KineticForge.Tracking
             }
         }
 
+        /// <summary>Mouse position in screen pixels, origin bottom left. Zero outside the Editor.</summary>
+        public static Vector2 Position
+        {
+            get
+            {
+#if UNITY_EDITOR && ENABLE_INPUT_SYSTEM && KF_INPUT_SYSTEM
+                Mouse mouse = Mouse.current;
+                return mouse != null ? mouse.position.ReadValue() : Vector2.zero;
+#elif UNITY_EDITOR && ENABLE_LEGACY_INPUT_MANAGER
+                return Input.mousePosition;
+#else
+                return Vector2.zero;
+#endif
+            }
+        }
+
         /// <summary>Returns true while <paramref name="button"/> is held down.</summary>
         /// <param name="button">Button to query.</param>
         /// <returns>True while held. Always false outside the Editor.</returns>

@@ -78,6 +78,7 @@ namespace KineticForge.Crafting
 
         readonly StanceReading _stance = new StanceReading();
         RelicCarvingSurface _surface;
+        RelicResonance _resonance;
         Vector2 _face;
         Vector2 _noiseSeed;
         Transform _visual;
@@ -100,7 +101,9 @@ namespace KineticForge.Crafting
         public float SlideGain => _slideGain;
 
         /// <summary>Current tremor amplitude in meters.</summary>
-        public float TremorAmplitude => _maxTremor * Mathf.Pow(1f - Mathf.Clamp01(_stance.Stability), _tremorExponent);
+        public float TremorAmplitude =>
+            _maxTremor * Mathf.Pow(1f - Mathf.Clamp01(_stance.Stability), _tremorExponent) +
+            (_resonance != null ? _resonance.TremorBoost : 0f);
 
         /// <summary>
         /// Computes the point a strike would hit right now: cursor position plus stance tremor plus aim assist.
@@ -122,7 +125,7 @@ namespace KineticForge.Crafting
 
             _surface.GetFacePoint(_face + tremor, out worldPoint, out worldNormal);
 
-            if (_aimAssist > 0f && _surface.TryGetActiveMark(out Vector3 mark, out _))
+            if (_aimAssist > 0f && _surface.IsAcceptingStrikes && _surface.TryGetActiveMark(out Vector3 mark, out _))
             {
                 float tolerance = _surface.StrikeTolerance;
                 float closeness = 1f - Mathf.InverseLerp(tolerance, 2f * tolerance, Vector3.Distance(worldPoint, mark));
@@ -156,6 +159,7 @@ namespace KineticForge.Crafting
         void Awake()
         {
             _surface = GetComponent<RelicCarvingSurface>();
+            _resonance = GetComponent<RelicResonance>();
             _block = new MaterialPropertyBlock();
             _noiseSeed = new Vector2(UnityEngine.Random.Range(0f, 500f), UnityEngine.Random.Range(0f, 500f));
             _onSlide = HandleSlide;
@@ -175,6 +179,12 @@ namespace KineticForge.Crafting
 
         void Start()
         {
+            // Components added after this one in the same frame are found here, once all have woken.
+            if (_resonance == null)
+            {
+                _resonance = GetComponent<RelicResonance>();
+            }
+
             if (_showCursor)
             {
                 CreateVisual();
@@ -188,7 +198,7 @@ namespace KineticForge.Crafting
                 return;
             }
 
-            bool visible = _surface.IsAcceptingStrikes;
+            bool visible = _surface.IsAimable;
             if (_visualRenderer.enabled != visible)
             {
                 _visualRenderer.enabled = visible;
@@ -225,7 +235,7 @@ namespace KineticForge.Crafting
                 return;
             }
 
-            if (!_surface.IsAcceptingStrikes)
+            if (!_surface.IsAimable)
             {
                 return;
             }

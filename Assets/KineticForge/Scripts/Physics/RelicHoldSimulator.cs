@@ -62,7 +62,11 @@ namespace KineticForge.Physics
         bool _nudgeQueued;
 
         /// <summary>World-space lift from the relic's start position to the hold point.</summary>
-        public Vector3 HoldOffset => _holdOffset;
+        public Vector3 HoldOffset
+        {
+            get => _holdOffset;
+            set => _holdOffset = value;
+        }
 
         /// <summary>True while the simulated hand grips the relic.</summary>
         public bool IsHolding => _driver != null && _driver.IsHeldBy(_hand);

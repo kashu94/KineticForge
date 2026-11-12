@@ -121,5 +121,19 @@ namespace KineticForge.Core
             float t = Mathf.Clamp01(((point.x - a.x) * ab.x + (point.y - a.y) * ab.y) / lengthSquared);
             return new Vector2(a.x + ab.x * t, a.y + ab.y * t);
         }
+
+        /// <summary>
+        /// Hermite smoothstep: 0 at or below <paramref name="edge0"/>, 1 at or above <paramref name="edge1"/>, smooth in
+        /// between. Same as HLSL <c>smoothstep</c>, unlike <see cref="Mathf.SmoothStep"/>, which interpolates.
+        /// </summary>
+        /// <param name="edge0">Lower edge.</param>
+        /// <param name="edge1">Upper edge.</param>
+        /// <param name="x">Input.</param>
+        /// <returns>The smoothed value in [0, 1].</returns>
+        public static float SmoothStep(float edge0, float edge1, float x)
+        {
+            float t = Mathf.Clamp01((x - edge0) / (edge1 - edge0));
+            return t * t * (3f - 2f * t);
+        }
     }
 }

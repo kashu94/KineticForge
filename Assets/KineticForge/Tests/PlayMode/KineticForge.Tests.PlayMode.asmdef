@@ -6,6 +6,7 @@
         "KineticForge.Tracking",
         "KineticForge.Physics",
         "KineticForge.Crafting",
+        "KineticForge.Feedback",
         "UnityEngine.TestRunner"
     ],
     "includePlatforms": [],

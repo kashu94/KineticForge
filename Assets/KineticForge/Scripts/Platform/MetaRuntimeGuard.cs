@@ -105,6 +105,12 @@ namespace KineticForge.Platform
 
             Camera fallback = cameraObject.AddComponent<Camera>();
             fallback.nearClipPlane = 0.05f;
+            if (RenderSettings.skybox == null)
+            {
+                // A sky-less scene clears to its fog color, so distant geometry fades into it.
+                fallback.clearFlags = CameraClearFlags.SolidColor;
+                fallback.backgroundColor = RenderSettings.fogColor;
+            }
             cameraObject.AddComponent<AudioListener>();
         }
 #endif

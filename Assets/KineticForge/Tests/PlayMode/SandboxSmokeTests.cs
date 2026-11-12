@@ -1,5 +1,7 @@
 using System.Collections;
 using KineticForge.Core;
+using KineticForge.Crafting;
+using KineticForge.Feedback;
 using KineticForge.Physics;
 using KineticForge.Tracking;
 using NUnit.Framework;
@@ -40,6 +42,15 @@ namespace KineticForge.Tests
             Assert.IsTrue(simulator != null && simulator.IsHolding, "the simulated hand holds the relic");
             Assert.IsTrue(stabilizer != null && stabilizer.IsGrabbed);
             Assert.IsTrue(ForgeMath.IsFinite(stabilizer.Body.position), "relic physics stayed finite");
+            Assert.IsNotNull(Object.FindAnyObjectByType<RelicResonance>(), "the relic resonates");
+            Assert.IsNotNull(Object.FindAnyObjectByType<RelicForgeRenderer>(), "the relic renders its forging state");
+            ForgeGuide guide = Object.FindAnyObjectByType<ForgeGuide>();
+            Assert.IsTrue(guide != null && guide.Text.Contains("KINETIC FORGE"), "the guide shows the intro");
+            Assert.IsNotNull(Object.FindAnyObjectByType<RelicSigil>(), "the relic has a sigil to awaken");
+            Assert.IsNotNull(Object.FindAnyObjectByType<ChladniSand>(), "the relic carries Chladni sand");
+            Assert.IsNotNull(Object.FindAnyObjectByType<ResonanceWall>(), "the forge has a Resonance Wall");
+            MoltenPour pour = Object.FindAnyObjectByType<MoltenPour>();
+            Assert.IsTrue(pour != null && pour.IsPouring, "the intro pours the relic");
 
             SceneManager.SetActiveScene(previous);
             yield return SceneManager.UnloadSceneAsync(sandbox);

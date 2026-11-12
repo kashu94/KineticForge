@@ -102,6 +102,12 @@ namespace KineticForge.Tracking
         [SerializeField, Tooltip("Seated play: the chair counts as a grounded base; stability comes from forward lean and steadiness.")]
         bool _seatedMode = false;
 
+        [SerializeField, Tooltip("At calibration, switch to seated play when the head is lower than the seated head height, and back to standing when it is higher.")]
+        bool _autoDetectSeated = true;
+
+        [SerializeField, Range(0.9f, 1.6f), Tooltip("Head height (m above the floor) below which a calibrated player counts as seated.")]
+        float _seatedHeadHeight = 1.32f;
+
         [Header("Joint Filtering")]
         [SerializeField, Tooltip("1€ filter applied to every tracked joint before evaluation. Removes tracking jitter while keeping fast moves responsive.")]
         OneEuroSettings _jointFilter = OneEuroSettings.BodyJoints;
@@ -1220,6 +1226,20 @@ namespace KineticForge.Tracking
                 _reference.StandingHeadHeight = (float)(_headHeightSum / _headSampleCount);
                 _reference.HasHead = true;
                 _headCeiling = _reference.StandingHeadHeight + MaxRiseAboveCalibration;
+
+                // Hands-only play is often seated; a low calibrated head means a chair, which then counts as the base.
+                if (_autoDetectSeated)
+                {
+                    bool seated = _reference.StandingHeadHeight < _seatedHeadHeight;
+                    if (seated != _seatedMode)
+                    {
+                        _seatedMode = seated;
+                        ForgeLog.Info(ForgeLogChannel.Tracking, LogSource, seated ? "SEATED_DETECTED" : "STANDING_DETECTED",
+                            "Calibrated head height " +
+                            _reference.StandingHeadHeight.ToString("0.00", CultureInfo.InvariantCulture) +
+                            " m: " + (seated ? "seated" : "standing") + " play.", this);
+                    }
+                }
             }
 
             if (hipsSampled)

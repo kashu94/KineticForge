@@ -373,6 +373,148 @@ namespace KineticForge.Core
     }
 
     /// <summary>
+    /// Payload of <see cref="ForgeEvents.RelicResonated"/>: what a chisel strike did to the relic as a resonating body.
+    /// </summary>
+    public readonly struct RelicResonanceEvent
+    {
+        /// <summary>Rigidbody of the struck relic.</summary>
+        public readonly Rigidbody Relic;
+
+        /// <summary>Hand that drove the strike.</summary>
+        public readonly ForgeHand Hand;
+
+        /// <summary>World-space contact point.</summary>
+        public readonly Vector3 Point;
+
+        /// <summary>World-space face normal at the contact point.</summary>
+        public readonly Vector3 Normal;
+
+        /// <summary>Contact point on the face, both axes in [0, 1].</summary>
+        public readonly Vector2 FaceUV;
+
+        /// <summary>Normalized strike energy in [0, 1].</summary>
+        public readonly float Strength;
+
+        /// <summary>Stance-scaled aim precision in [0, 1].</summary>
+        public readonly float Precision;
+
+        /// <summary>Timing against the relic's pulse in [−1, 1]: +1 perfectly in rhythm, −1 against it.</summary>
+        public readonly float Timing;
+
+        /// <summary>Resonance charge (pulse amplitude) after the strike.</summary>
+        public readonly float Charge;
+
+        /// <summary>Normalized heat after the strike: 1 fresh from the furnace, 0 cold.</summary>
+        public readonly float Heat;
+
+        /// <summary>How strongly the strike excited each of the four plate modes, in [0, 1].</summary>
+        public readonly Vector4 ModeExcitation;
+
+        /// <summary>Quality of the carved mark in [0, 1], or 0 when nothing was carved.</summary>
+        public readonly float Quality;
+
+        /// <summary>Index of the mark this strike carved, or −1.</summary>
+        public readonly int CarvedMark;
+
+        /// <summary>True when the strike cracked the relic.</summary>
+        public readonly bool Cracked;
+
+        /// <summary>Remaining integrity in [0, 1] after the strike.</summary>
+        public readonly float Integrity;
+
+        /// <summary>Creates a relic resonance payload.</summary>
+        /// <param name="relic">Rigidbody of the struck relic.</param>
+        /// <param name="hand">Hand that drove the strike.</param>
+        /// <param name="point">World-space contact point.</param>
+        /// <param name="normal">World-space face normal.</param>
+        /// <param name="faceUV">Contact point on the face in [0, 1].</param>
+        /// <param name="strength">Strike energy in [0, 1].</param>
+        /// <param name="precision">Aim precision in [0, 1].</param>
+        /// <param name="timing">Pulse timing in [−1, 1].</param>
+        /// <param name="charge">Charge after the strike.</param>
+        /// <param name="heat">Heat after the strike.</param>
+        /// <param name="modeExcitation">Excitation per plate mode.</param>
+        /// <param name="quality">Carve quality, or 0.</param>
+        /// <param name="carvedMark">Carved mark index, or −1.</param>
+        /// <param name="cracked">True when the strike cracked the relic.</param>
+        /// <param name="integrity">Integrity after the strike.</param>
+        public RelicResonanceEvent(
+            Rigidbody relic,
+            ForgeHand hand,
+            Vector3 point,
+            Vector3 normal,
+            Vector2 faceUV,
+            float strength,
+            float precision,
+            float timing,
+            float charge,
+            float heat,
+            Vector4 modeExcitation,
+            float quality,
+            int carvedMark,
+            bool cracked,
+            float integrity)
+        {
+            Relic = relic;
+            Hand = hand;
+            Point = point;
+            Normal = normal;
+            FaceUV = faceUV;
+            Strength = strength;
+            Precision = precision;
+            Timing = timing;
+            Charge = charge;
+            Heat = heat;
+            ModeExcitation = modeExcitation;
+            Quality = quality;
+            CarvedMark = carvedMark;
+            Cracked = cracked;
+            Integrity = integrity;
+        }
+    }
+
+    /// <summary>
+    /// Payload of <see cref="ForgeEvents.RelicForged"/>: the result of a finished relic.
+    /// </summary>
+    public readonly struct RelicForgedEvent
+    {
+        /// <summary>Rigidbody of the forged relic.</summary>
+        public readonly Rigidbody Relic;
+
+        /// <summary>The grade.</summary>
+        public readonly ForgeGrade Grade;
+
+        /// <summary>Mean carve quality of all marks, in [0, 1].</summary>
+        public readonly float MeanQuality;
+
+        /// <summary>Remaining integrity in [0, 1].</summary>
+        public readonly float Integrity;
+
+        /// <summary>Longest run of consecutive strikes in rhythm.</summary>
+        public readonly int BestStreak;
+
+        /// <summary>Seconds from the first strike to the last mark.</summary>
+        public readonly float Duration;
+
+        /// <summary>Creates a relic forged payload.</summary>
+        /// <param name="relic">Rigidbody of the forged relic.</param>
+        /// <param name="grade">The grade.</param>
+        /// <param name="meanQuality">Mean carve quality.</param>
+        /// <param name="integrity">Remaining integrity.</param>
+        /// <param name="bestStreak">Longest in-rhythm streak.</param>
+        /// <param name="duration">Forging time, in seconds.</param>
+        public RelicForgedEvent(Rigidbody relic, ForgeGrade grade, float meanQuality, float integrity, int bestStreak, float duration)
+        {
+            Relic = relic;
+            Grade = grade;
+            MeanQuality = meanQuality;
+            Integrity = integrity;
+            BestStreak = bestStreak;
+            Duration = duration;
+        }
+    }
+
+    /// <summary>
     /// Payload of <see cref="ForgeEvents.GamePhaseChanged"/>.
     /// </summary>
     public readonly struct GamePhaseChangedEvent
@@ -511,6 +653,12 @@ namespace KineticForge.Core
         static readonly ForgeSignal<ChiselStrikeEvent> s_chiselStrike =
             new ForgeSignal<ChiselStrikeEvent>("ForgeEvents.ChiselStrike");
 
+        static readonly ForgeSignal<RelicResonanceEvent> s_relicResonated =
+            new ForgeSignal<RelicResonanceEvent>("ForgeEvents.RelicResonated");
+
+        static readonly ForgeSignal<RelicForgedEvent> s_relicForged =
+            new ForgeSignal<RelicForgedEvent>("ForgeEvents.RelicForged");
+
         static readonly ForgeSignal<GamePhaseChangedEvent> s_gamePhaseChanged =
             new ForgeSignal<GamePhaseChangedEvent>("ForgeEvents.GamePhaseChanged");
 
@@ -579,6 +727,23 @@ namespace KineticForge.Core
             remove => s_chiselStrike.Remove(value);
         }
 
+        /// <summary>
+        /// Raised after a chisel strike has rung the relic: its timing against the pulse, charge, heat, carve quality
+        /// and any crack. Audio, haptics and effects listen here.
+        /// </summary>
+        public static event Action<RelicResonanceEvent> RelicResonated
+        {
+            add => s_relicResonated.Add(value);
+            remove => s_relicResonated.Remove(value);
+        }
+
+        /// <summary>Raised when the last mark of a relic is carved, with its grade.</summary>
+        public static event Action<RelicForgedEvent> RelicForged
+        {
+            add => s_relicForged.Add(value);
+            remove => s_relicForged.Remove(value);
+        }
+
         /// <summary>Raised after the game flow enters a new phase.</summary>
         public static event Action<GamePhaseChangedEvent> GamePhaseChanged
         {
@@ -641,6 +806,14 @@ namespace KineticForge.Core
         /// <param name="payload">Strike data.</param>
         public static void RaiseChiselStrike(in ChiselStrikeEvent payload) => s_chiselStrike.Raise(payload);
 
+        /// <summary>Raises <see cref="RelicResonated"/>.</summary>
+        /// <param name="payload">Event data.</param>
+        public static void RaiseRelicResonated(in RelicResonanceEvent payload) => s_relicResonated.Raise(payload);
+
+        /// <summary>Raises <see cref="RelicForged"/>.</summary>
+        /// <param name="payload">Event data.</param>
+        public static void RaiseRelicForged(in RelicForgedEvent payload) => s_relicForged.Raise(payload);
+
         /// <summary>Raises <see cref="GamePhaseChanged"/>.</summary>
         /// <param name="payload">Phase transition data.</param>
         public static void RaiseGamePhaseChanged(in GamePhaseChangedEvent payload) => s_gamePhaseChanged.Raise(payload);
@@ -670,6 +843,8 @@ namespace KineticForge.Core
             s_microGestureSlide.Clear();
             s_microGestureTap.Clear();
             s_chiselStrike.Clear();
+            s_relicResonated.Clear();
+            s_relicForged.Clear();
             s_gamePhaseChanged.Clear();
             s_forgeProgressChanged.Clear();
             s_pauseRequestChanged.Clear();

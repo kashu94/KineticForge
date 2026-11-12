@@ -78,6 +78,9 @@ namespace KineticForge.Core
         [SerializeField, Range(0f, 1f), Tooltip("Minimum strike precision that counts toward forging progress.")]
         float _minStrikePrecision = 0.35f;
 
+        [SerializeField, Range(0f, 5f), Tooltip("Seconds after the last qualifying strike before the completion phase begins, so the final carve, its sparks and its ring land first.")]
+        float _completionDelay = 1.5f;
+
         [Header("Completion")]
         [SerializeField, Tooltip("Loop back to the intro after the completion sequence, for kiosk demos.")]
         bool _restartAfterCompletion = false;
@@ -114,6 +117,7 @@ namespace KineticForge.Core
         bool _ownsTimeScale;
         bool _ownsAudioPause;
         float _timeScaleBeforePause = 1f;
+        float _completionCountdown = -1f;
 
         Action<StanceChangedEvent> _onStanceChanged;
         Action<StanceCalibratedEvent> _onStanceCalibrated;
@@ -171,6 +175,12 @@ namespace KineticForge.Core
 
         /// <summary>Restarts the loop at the intro, re-entering it if it is already active.</summary>
         public void RestartExperience() => RequestTransition(ForgePhase.Intro, true);
+
+        /// <summary>
+        /// Forges another relic: goes straight back to <see cref="ForgePhase.FirstRelicForging"/>, keeping the player's
+        /// calibration. Use from the completion screen.
+        /// </summary>
+        public void ForgeAgain() => RequestTransition(ForgePhase.FirstRelicForging, true);
 
         /// <summary>Skips to the next phase; Completion wraps to the intro. Intended for debugging and demo control.</summary>
         public void AdvancePhase() => RequestTransition(NextPhase(_phase), true);
@@ -235,6 +245,17 @@ namespace KineticForge.Core
 
                 case ForgePhase.Calibration:
                     TickCalibration(deltaTime);
+                    break;
+
+                case ForgePhase.FirstRelicForging:
+                    if (_completionCountdown >= 0f)
+                    {
+                        _completionCountdown -= deltaTime;
+                        if (_completionCountdown < 0f)
+                        {
+                            RequestTransition(ForgePhase.Completion, false);
+                        }
+                    }
                     break;
 
                 case ForgePhase.Completion:
@@ -392,9 +413,11 @@ namespace KineticForge.Core
             _qualifiedStrikes++;
             RaiseProgress();
 
-            if (_qualifiedStrikes >= _requiredStrikes)
+            // Never complete inside the strike's own dispatch: the carving surface and the relic still have to handle
+            // this strike, and they stop accepting strikes once the phase changes.
+            if (_qualifiedStrikes >= _requiredStrikes && _completionCountdown < 0f)
             {
-                RequestTransition(ForgePhase.Completion, false);
+                _completionCountdown = _completionDelay;
             }
         }
 
@@ -579,6 +602,7 @@ namespace KineticForge.Core
 
         void EnterPhase(ForgePhase phase)
         {
+            _completionCountdown = -1f;
             switch (phase)
             {
                 case ForgePhase.Intro:
