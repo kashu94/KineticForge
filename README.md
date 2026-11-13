@@ -25,7 +25,7 @@ An in-world guide teaches all of this while you play.
 ## Voicing: the full loop
 
 1. **The commission.** A patron asks for a chord (open fifths, major, minor, suspended, major seventh, minor seventh), each harder than the last. The pour leaves the relic's four voices, one per plate mode, ringing sharp. A crucible lowers on its chain and pours molten bronze; the relic fills its mold white-hot.
-2. **Ring it.** Every spot on the face rings different voices, and glowing filings slide onto the nodal lines of what rings. A **tuning fork** answers each strike with the target pitches, so a voice that is off beats against its fork: a wobble that slows and fades as the voice comes true.
+2. **Ring it.** Reach out and tap the relic with your finger; as your finger nears it, the tuner's ghost markers follow it, so you can see what a cut would do before you touch. Every spot on the face rings different voices, and glowing filings slide onto the nodal lines of what rings. A **tuning fork** answers each strike with the target pitches, so a voice that is off beats against its fork: a wobble that slows and fades as the voice comes true.
 3. **Tune it.** Pick the chisel and cut metal. The first relic is a guided lesson with a checklist, a hint ring that marks a good cut, a verdict on every cut (good, too far, wasted) and three re-melts: swap to the torch and strike to undo your last cut. Later commissions have fewer re-melts, and the last has none. Where a voice moves most (the bare patches, never the sand) a cut lowers its pitch most. Every cut is final and cuts only lower pitch, so overshooting leaves a voice flat for good. The **tuner** beside the anvil shows each voice in cents, the in-tune band, and a ghost marker for where the next cut would take it. Rhythm is optional: a charged relic cuts coarser, a calm one finer. Bracing visibly grounds the charge; a loose stance throws sparks and cracks cold metal. When every voice is in tune the relic settles; cut again to refine, or let it finish.
 4. **Quench.** Pinch on the result screen: the relic is plunged into the water trough in a burst of steam and a long hiss, then rises and sings the chord exactly as you tuned it.
 5. **The Resonance Wall.** Every quenched relic hangs on the wall and keeps the chord you left it with, between sessions. Point and pinch to ring them; a relic you tuned badly sounds it. Each forge brings the next of six commissions.
@@ -56,7 +56,7 @@ Use **Advance Phase** on the Forge Game Manager to skip ahead while testing.
 | Brace your stance | Crouch, lean in, widen your feet | Same | Hold Space, or press B to toggle |
 | Grab the relic | Close your hand near it | Squeeze the grip | Held automatically by the Relic Hold Simulator |
 | Aim the chisel | Point at the relic; slide your thumb along your index finger for fine control | Thumbstick | Right-drag the mouse |
-| Ring or cut (strike) | Pinch, or tap your thumb on your index finger | Index trigger | Left-click |
+| Ring or cut (strike) | Tap the relic with your index fingertip, or point and pinch, or tap your thumb on your index finger | Index trigger | Left-click |
 | Change tool: hammer, chisel, torch (undo) | Tap the thumb of your other hand | Left index trigger | T |
 | Quench, then forge again (result screen) | Pinch | Index trigger | Left-click |
 | Ring a relic on the Resonance Wall | Point at it and pinch | – | Left-click it |

@@ -58,6 +58,12 @@ namespace KineticForge.Crafting
         /// <summary>True while the pointer is on the relic's face and steering the cursor.</summary>
         public bool IsAiming => _aiming;
 
+        /// <summary>
+        /// While true the pointer does not steer the cursor: set by <see cref="FingertipStrike"/> while a fingertip hovers
+        /// over the face, so the finger and the pointer never fight over the aim point.
+        /// </summary>
+        public bool Suppressed { get; set; }
+
         /// <summary>Hand whose pointer aims.</summary>
         public ForgeHand Hand => _hand;
 
@@ -71,6 +77,13 @@ namespace KineticForge.Crafting
         void Update()
         {
             _aiming = false;
+            if (Suppressed)
+            {
+                _filterX.Reset();
+                _filterY.Reset();
+                return;
+            }
+
 #if KF_META_XR_CORE
             if (!ForgePlatform.IsMetaRuntimeAvailable)
             {

@@ -248,6 +248,7 @@ namespace KineticForge.EditorTools
             SetSerializedInt(strike, "_strikingHand", (int)ForgeHand.Right);
             RelicResonance resonance = relic.AddComponent<RelicResonance>();
             relic.AddComponent<RelicVoicing>();
+            relic.AddComponent<FingertipStrike>();
             relic.AddComponent<RelicForgeRenderer>();
 
             ChladniSand sand = relic.AddComponent<ChladniSand>();

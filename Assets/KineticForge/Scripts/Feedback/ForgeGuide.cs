@@ -503,7 +503,7 @@ namespace KineticForge.Feedback
                 Title(b, "RING THE RELIC");
                 b.Append("\n").Append(commission.ChordName).Append(" in ").Append(commission.RootName)
                     .Append(": four voices, all ringing sharp.\nStrike it. Every spot rings different voices.")
-                    .Append(hands ? "\n<b>Point</b> and <b>pinch</b>: watch the tuner and the sand." : "\n<b>Right-drag</b> to aim, <b>left-click</b> to strike.");
+                    .Append(hands ? "\n<b>Touch</b> the relic, or <b>point</b> and <b>pinch</b>: watch the tuner and the sand." : "\n<b>Right-drag</b> to aim, <b>left-click</b> to strike.");
                 return;
             }
 
@@ -565,7 +565,9 @@ namespace KineticForge.Feedback
             }
             else if (current == 3)
             {
-                b.Append("\n<size=88%>Aim: each gauge's ghost shows where a cut would take it.</size>");
+                b.Append(hands
+                    ? "\n<size=88%>Hover a finger over the relic: each gauge's ghost follows it.</size>"
+                    : "\n<size=88%>Aim: each gauge's ghost shows where a cut would take it.</size>");
             }
         }
 

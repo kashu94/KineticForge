@@ -162,6 +162,67 @@ namespace KineticForge.Tests
         }
 
         [UnityTest]
+        public IEnumerator ATouchingFingertip_HoversThenTaps_AndStrikesWhereItLands()
+        {
+            yield return null;
+            FingertipStrike finger = _relic.AddComponent<FingertipStrike>();
+            yield return null;
+            ForgeEvents.RaiseStanceChanged(new StanceChangedEvent(1f, 1f, StanceTrackingSource.HeadPose, false, 1f, 1f));
+            _voicing.SetTool(VoicingTool.Chisel);
+
+            Vector2 face = new Vector2(-0.5f, 0.4f);
+            _surface.GetFacePoint(face, out Vector3 onFace, out Vector3 normal);
+
+            // Hovering: the finger steers the aim point and the strike has not happened.
+            Assert.IsFalse(finger.ProcessTip(onFace + normal * 0.06f, 0.014f));
+            Assert.IsTrue(finger.IsHovering);
+            Assert.AreEqual(face.x, _cursor.FaceCoordinates.x, 0.03f, "the aim point follows the finger");
+            Assert.AreEqual(face.y, _cursor.FaceCoordinates.y, 0.03f);
+            Assert.AreEqual(0, _voicing.CutsUsed);
+
+            // A quick tap onto the face cuts there.
+            yield return new WaitForSecondsRealtime(0.15f);
+            Assert.IsFalse(finger.ProcessTip(onFace + normal * 0.03f, 0.014f));
+            Assert.IsTrue(finger.ProcessTip(onFace + normal * 0.003f, 0.014f), "a quick approach taps");
+            Assert.AreEqual(1, finger.TouchCount);
+            Assert.AreEqual(1, _voicing.CutsUsed, "with the chisel up, a tap cuts");
+            Assert.Greater(_resonance.PlateAmplitudes.magnitude, 0.05f, "and rings the plate");
+
+            // Resting at the face never strikes again; drawing back and tapping does.
+            yield return new WaitForSecondsRealtime(0.15f);
+            Assert.IsFalse(finger.ProcessTip(onFace + normal * 0.02f, 0.014f));
+            Assert.IsFalse(finger.ProcessTip(onFace + normal * 0.003f, 0.014f));
+            Assert.AreEqual(1, _voicing.CutsUsed);
+            finger.ProcessTip(onFace + normal * 0.07f, 0.014f);
+            yield return new WaitForSecondsRealtime(0.15f);
+            finger.ProcessTip(onFace + normal * 0.03f, 0.014f);
+            Assert.IsTrue(finger.ProcessTip(onFace + normal * 0.003f, 0.014f));
+            Assert.AreEqual(2, _voicing.CutsUsed);
+
+            finger.LoseTrack();
+            Assert.IsFalse(finger.IsHovering, "losing the hand releases the aim point");
+        }
+
+        [UnityTest]
+        public IEnumerator AFingertipOffTheFace_OrFarAway_DoesNothing()
+        {
+            yield return null;
+            FingertipStrike finger = _relic.AddComponent<FingertipStrike>();
+            yield return null;
+            _surface.GetFacePoint(new Vector2(0.2f, 0.2f), out Vector3 onFace, out Vector3 normal);
+            Vector3 sideways = _relic.transform.right * 0.6f;
+
+            Assert.IsFalse(finger.ProcessTip(onFace + normal * 0.3f, 0.014f), "far in front");
+            Assert.IsFalse(finger.IsHovering);
+            Assert.IsFalse(finger.ProcessTip(onFace + sideways + normal * 0.06f, 0.014f), "off to the side");
+            Assert.IsFalse(finger.IsHovering);
+            finger.ProcessTip(onFace + sideways + normal * 0.03f, 0.014f);
+            Assert.IsFalse(finger.ProcessTip(onFace + sideways + normal * 0.003f, 0.014f), "a tap beside the relic is not a strike");
+            Assert.AreEqual(0, finger.TouchCount);
+            Assert.AreEqual(0, _voicing.CutsUsed);
+        }
+
+        [UnityTest]
         public IEnumerator EveryCut_IsJudged()
         {
             yield return null;
