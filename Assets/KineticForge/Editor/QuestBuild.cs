@@ -285,11 +285,12 @@ namespace KineticForge.EditorTools
             }
 
             SerializedObject oculus = LoadOculusSettings();
-            if (oculus == null)
+            if (oculus == null && !UsesOpenXr())
             {
-                problems.Add("Oculus XR plugin settings were not found (Project Settings > XR Plug-in Management > Oculus).");
+                problems.Add("No XR plugin is set up: neither the Oculus nor the OpenXR loader was found " +
+                             "(Project Settings > XR Plug-in Management > Android).");
             }
-            else
+            else if (oculus != null)
             {
                 SerializedProperty quest3 = oculus.FindProperty("TargetQuest3");
                 if (quest3 != null && !quest3.boolValue)
@@ -538,6 +539,15 @@ namespace KineticForge.EditorTools
             return builder.ToString();
         }
 
+        /// <summary>
+        /// True when the project uses the Unity OpenXR plugin, found by its loader asset. The loader's type lives in a
+        /// package this assembly does not reference, so it is looked up by name.
+        /// </summary>
+        static bool UsesOpenXr()
+        {
+            return AssetDatabase.FindAssets("t:OpenXRLoader").Length > 0;
+        }
+
         static SerializedObject LoadOculusSettings()
         {
             string[] guids = AssetDatabase.FindAssets("t:OculusSettings");
@@ -663,6 +673,12 @@ namespace KineticForge.EditorTools
             if (config.insightPassthroughSupport == OVRProjectConfig.FeatureSupport.None)
             {
                 problems.Add("Passthrough is off in the Meta project config, so mixed reality cannot start.");
+            }
+
+            // The Meta SDK writes the manifest's supported-device list from these targets, for either XR plugin.
+            if (config.targetDeviceTypes == null || !config.targetDeviceTypes.Contains(OVRProjectConfig.DeviceType.Quest3))
+            {
+                problems.Add("Quest 3 is not a target device in the Meta project config, so the manifest would not list it.");
             }
 #endif
         }

@@ -38,7 +38,7 @@ The model is simplified, not a finite element simulation: the sensitivity of a v
 - Unity **6000.3.28f1** with Android Build Support (OpenJDK, SDK and NDK)
 - Meta Quest 3, for hand and body tracking. Everything also runs in the Editor with keyboard and mouse fallbacks.
 
-Packages are listed in `Packages/manifest.json`: Meta XR Core SDK, Interaction SDK and Haptics 207.0.1, Oculus XR Plugin, URP and the Input System.
+Packages are listed in `Packages/manifest.json`: Meta XR Core SDK, Interaction SDK and Haptics 207.0.1, the Unity OpenXR Plugin (the headset runs through OpenXR, as Meta recommends for Unity 6), URP and the Input System.
 
 ## Quick start
 
@@ -78,7 +78,7 @@ Everything runs in the Editor on Linux, with these keys. They apply only where n
 | F2 | Headset-like field of view (96 degrees vertical, nearly square), to judge text size and framing |
 | Space or B | Brace; M previews mixed reality |
 
-The simulated hand drives the same code a tracked hand does, so the tap rule, the hover, the re-arm and tracking loss are all exercised. It cannot show real tracking noise, comfort, arm fatigue, frame rate or passthrough: those need a headset. Meta's own XR Simulator runs only on Windows and macOS, so on this project it is an option for the Windows laptop, not this one.
+The simulated hand drives the same code a tracked hand does, so the tap rule, the hover, the re-arm and tracking loss are all exercised. It cannot show real tracking noise, comfort, arm fatigue, frame rate or passthrough: those need a headset. Meta's own XR Simulator runs only on Windows and macOS, so it is an option for a Windows machine, not Linux. The project uses OpenXR, which the simulator needs. On Windows: install Meta's XR Simulator, open the project, tick **OpenXR** on the **PC** tab of Project Settings > XR Plug-in Management (do not commit that change, since it would make Linux Play mode start OpenXR), then choose **Window > Meta > Meta XR Simulator > Activate** and press Play. Set the device to Meta Quest 3 and the left and right inputs in the simulator window.
 
 ## Headless setup and tests
 
