@@ -68,6 +68,9 @@ namespace KineticForge.Feedback
         [SerializeField, Range(0f, 1.5f), Tooltip("Volume of a crack.")]
         float _crackVolume = 0.9f;
 
+        [SerializeField, Range(5f, 80f), Tooltip("How fast (1/s) a finger on the plate silences the voices it covers.")]
+        float _dampingRate = 30f;
+
         // Audio thread state.
         readonly float[] _re = new float[ModeCount];
         readonly float[] _im = new float[ModeCount];
@@ -95,6 +98,7 @@ namespace KineticForge.Feedback
         readonly float[] _queueStrength = new float[QueueSize];
         readonly Vector4[] _queueExcitation = new Vector4[QueueSize];
         int _queueWrite;
+        readonly float[] _damp = new float[VoicingMath.VoiceCount];
         readonly float[] _voiceCents = new float[VoicingMath.VoiceCount];
         readonly float[] _forkCents = new float[VoicingMath.VoiceCount];
         volatile bool _voiced;
@@ -119,6 +123,7 @@ namespace KineticForge.Feedback
         AudioClip _carrier;
         Action<RelicResonanceEvent> _onResonated;
         Action<RelicForgedEvent> _onForged;
+        Action _onInTune;
 
         /// <summary>Prime partial frequency (Hz) the relic rings at when cold.</summary>
         public float Fundamental => _fundamental;
@@ -173,6 +178,7 @@ namespace KineticForge.Feedback
 
             _onResonated = HandleResonated;
             _onForged = HandleForged;
+            _onInTune = HandleInTune;
             _fundamental = _coldFundamental;
             _sampleRate = Mathf.Max(8000, AudioSettings.outputSampleRate);
 
@@ -208,6 +214,11 @@ namespace KineticForge.Feedback
         {
             ForgeEvents.RelicResonated -= _onResonated;
             ForgeEvents.RelicForged -= _onForged;
+            if (_voicing != null)
+            {
+                _voicing.OnInTune -= _onInTune;
+            }
+
             _running = false;
         }
 
@@ -230,6 +241,10 @@ namespace KineticForge.Feedback
             _heat = _resonance.Heat;
 
             SyncVoices();
+            for (int m = 0; m < VoicingMath.VoiceCount; m++)
+            {
+                _damp[m] = _resonance.Damping[m];
+            }
 
             // A voiced relic rings its commission's root; its errors are in the voices themselves.
             if (_voicing != null && _voicing.Stage != VoicingStage.Dormant)
@@ -284,6 +299,18 @@ namespace KineticForge.Feedback
             {
                 _voicing = GetComponent<RelicVoicing>();
             }
+
+            if (_voicing != null)
+            {
+                _voicing.OnInTune += _onInTune;
+            }
+        }
+
+        /// <summary>The last voice comes true: the whole chord blooms, every voice in unison with its fork.</summary>
+        void HandleInTune()
+        {
+            SyncVoices();
+            Play(0.9f, new Vector4(1f, 1f, 1f, 1f));
         }
 
         void HandleResonated(RelicResonanceEvent payload)
@@ -326,7 +353,7 @@ namespace KineticForge.Feedback
                 float omega = 2f * Mathf.PI * fundamental * ratio * pitch / _sampleRate;
                 _rotCos[k] = Mathf.Cos(omega);
                 _rotSin[k] = Mathf.Sin(omega);
-                _decay[k] = Mathf.Exp(-dampingScale / (s_decays[k] * _sampleRate));
+                _decay[k] = Mathf.Exp(-(dampingScale / s_decays[k] + _damp[s_plateMode[k]] * _dampingRate) / _sampleRate);
             }
 
             for (int m = 0; m < VoicingMath.VoiceCount; m++)

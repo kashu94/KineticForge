@@ -1,5 +1,6 @@
 using System;
 using KineticForge.Core;
+using KineticForge.Crafting;
 using UnityEngine;
 
 namespace KineticForge.Feedback
@@ -39,11 +40,15 @@ namespace KineticForge.Feedback
         ParticleSystem _flash;
         Action<RelicResonanceEvent> _onResonated;
         Action<RelicForgedEvent> _onForged;
+        Action _onInTune;
+        RelicVoicing _voicing;
+        Rigidbody _voicedBody;
 
         void Awake()
         {
             _onResonated = HandleResonated;
             _onForged = HandleForged;
+            _onInTune = HandleInTune;
             _sparks = CreateSystem("Strike Sparks", _sparkMaterial, 900, true);
             _flash = CreateSystem("Strike Flash", _flashMaterial, 16, false);
         }
@@ -58,6 +63,33 @@ namespace KineticForge.Feedback
         {
             ForgeEvents.RelicResonated -= _onResonated;
             ForgeEvents.RelicForged -= _onForged;
+            if (_voicing != null)
+            {
+                _voicing.OnInTune -= _onInTune;
+            }
+        }
+
+        void Start()
+        {
+            _voicing = FindAnyObjectByType<RelicVoicing>();
+            if (_voicing != null)
+            {
+                _voicedBody = _voicing.GetComponent<Rigidbody>();
+                _voicing.OnInTune += _onInTune;
+            }
+        }
+
+        /// <summary>The last voice comes true: a bloom of light and sparks from the relic, before it settles.</summary>
+        void HandleInTune()
+        {
+            if (_voicedBody == null)
+            {
+                return;
+            }
+
+            Vector3 origin = _voicedBody.worldCenterOfMass;
+            Burst(origin, Vector3.up, 140, 0.8f, 2.6f, 60f, new Color(0.7f, 1f, 0.75f), 0.004f, 0.01f);
+            Flash(origin, new Color(0.6f, 1.3f, 0.75f), 0.42f);
         }
 
         void HandleResonated(RelicResonanceEvent payload)
@@ -66,6 +98,12 @@ namespace KineticForge.Feedback
             int count = Mathf.RoundToInt(_sparksPerStrike * payload.Strength * (0.45f + 0.55f * payload.Heat) *
                                          (1f + 0.6f * Mathf.Clamp01(payload.Charge)));
             Burst(payload.Point, payload.Normal, count, 1.4f, 3.8f, 55f, hot, 0.004f, 0.009f);
+
+            // A chisel cut flashes a small ember ring where the metal came away.
+            if (_voicing != null && _voicing.IsActive && _voicing.Tool == VoicingTool.Chisel)
+            {
+                Flash(payload.Point + payload.Normal * 0.004f, new Color(1.2f, 0.55f, 0.18f), 0.09f);
+            }
 
             if (payload.CarvedMark >= 0)
             {

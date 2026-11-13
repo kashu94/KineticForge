@@ -89,6 +89,9 @@ namespace KineticForge.Crafting
         [SerializeField, Range(0.5f, 10f), Tooltip("How fast (1/s) a held figure pulls the plate modes back after a strike.")]
         float _plateHoldRate = 3f;
 
+        [SerializeField, Range(1f, 20f), Tooltip("How fast (1/s) a touch silences the plate modes it covers, in the sand figure.")]
+        float _dampingRate = 9f;
+
         [Header("Cracks")]
         [SerializeField, Range(0.3f, 3f), Tooltip("Strike stress above which the relic cracks.")]
         float _crackThreshold = 1.15f;
@@ -114,6 +117,7 @@ namespace KineticForge.Crafting
         Rigidbody _body;
         Vector2 _pulse;
         Vector4 _plate;
+        Vector4 _damping;
         float _heat;
         float _integrity = 1f;
         float _qualitySum;
@@ -165,6 +169,33 @@ namespace KineticForge.Crafting
 
         /// <summary>Signed amplitude of each plate mode.</summary>
         public Vector4 PlateAmplitudes => _plate;
+
+        /// <summary>
+        /// How strongly each voice (plate mode) is being muted by a touch, in [0, 1]. Zero when nothing touches the plate.
+        /// </summary>
+        public Vector4 Damping => _damping;
+
+        /// <summary>True while a touch is muting the plate.</summary>
+        public bool IsDamped => _damping.sqrMagnitude > 1e-6f;
+
+        /// <summary>
+        /// Presses a finger on the plate at <paramref name="uv"/>: every voice is muted in proportion to how much its mode
+        /// moves there, so a finger on a bare patch silences the voices that move most, and one on a nodal line mutes
+        /// almost nothing. Call every frame while the touch lasts; <see cref="ClearDamping"/> lifts it.
+        /// </summary>
+        /// <param name="uv">Face position, both axes in [0, 1].</param>
+        /// <param name="pressure">Touch strength in [0, 1].</param>
+        public void SetDamping(Vector2 uv, float pressure)
+        {
+            Vector2 clamped = new Vector2(Mathf.Clamp01(uv.x), Mathf.Clamp01(uv.y));
+            _damping = ResonanceMath.PlateExcitation(clamped) * ForgeMath.Sanitize01(pressure, 1f);
+        }
+
+        /// <summary>Lifts any touch from the plate.</summary>
+        public void ClearDamping()
+        {
+            _damping = Vector4.zero;
+        }
 
         /// <summary>Remaining integrity in [0, 1]; 0 means fractured.</summary>
         public float Integrity => _integrity;
@@ -310,6 +341,7 @@ namespace KineticForge.Crafting
             _firstStrikeTime = -1f;
             _lastSwayVelocity = 0f;
             _plateHeld = false;
+            _damping = Vector4.zero;
             _forged = false;
             _grade = ForgeGrade.C;
         }
@@ -396,6 +428,11 @@ namespace KineticForge.Crafting
                 for (int i = 0; i < ResonanceMath.PlateModeCount; i++)
                 {
                     _plate[i] = ResonanceMath.Cool(_plate[i], Mathf.Max(0.05f, _plateDecayTimes[i]), deltaTime);
+                    if (_damping[i] > 0f)
+                    {
+                        // A touch on the plate silences the modes it covers, and the sand follows.
+                        _plate[i] *= Mathf.Exp(-_damping[i] * _dampingRate * deltaTime);
+                    }
                 }
             }
         }

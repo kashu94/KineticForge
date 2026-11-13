@@ -223,6 +223,116 @@ namespace KineticForge.Tests
         }
 
         [UnityTest]
+        public IEnumerator APressedFinger_MutesTheVoicesUnderIt_AndLiftingItReleasesThem()
+        {
+            yield return null;
+            FingertipDamper damper = _relic.AddComponent<FingertipDamper>();
+            damper.IsHeldByTest = true;
+            yield return null;
+            ForgeEvents.RaiseStanceChanged(new StanceChangedEvent(1f, 1f, StanceTrackingSource.HeadPose, false, 1f, 1f));
+
+            // Ring the plate so every voice has something to lose.
+            yield return StrikeAt(new Vector2(-0.4f, 0.3f));
+            Vector4 ringing = _resonance.PlateAmplitudes;
+            Assert.Greater(ringing.magnitude, 0.1f);
+            Assert.IsFalse(_resonance.IsDamped);
+
+            // A finger on the face where mode zero moves most.
+            Vector2 face = new Vector2(-0.5f, 0.5f);
+            _surface.GetFacePoint(face, out Vector3 onFace, out Vector3 normal);
+            Vector2 uv = _surface.WorldToUV(onFace);
+            Assert.IsTrue(uv.x >= 0f && uv.x <= 1f && uv.y >= 0f && uv.y <= 1f, "the test finger is over the plate");
+            Assert.IsFalse(damper.ProcessTip(onFace + normal * 0.06f), "hovering does not mute");
+            Assert.IsTrue(damper.ProcessTip(onFace + normal * 0.004f), "pressing does");
+            Assert.IsTrue(damper.IsDamping);
+            Assert.IsTrue(_resonance.IsDamped);
+            Vector4 expected = ResonanceMath.PlateExcitation(new Vector2(Mathf.Clamp01(uv.x), Mathf.Clamp01(uv.y)));
+            Assert.AreEqual(expected.x, _resonance.Damping.x, 1e-4f, "each voice is muted by how much its mode moves there");
+            Assert.AreEqual(expected.w, _resonance.Damping.w, 1e-4f);
+
+            float before = _resonance.PlateAmplitudes.magnitude;
+            yield return new WaitForSeconds(0.4f);
+            Assert.Less(_resonance.PlateAmplitudes.magnitude, before * 0.85f, "the sand figure fades faster under a finger");
+
+            // Lifting the finger lifts the mute.
+            Assert.IsFalse(damper.ProcessTip(onFace + normal * 0.06f));
+            Assert.IsFalse(_resonance.IsDamped);
+            Assert.AreEqual(Vector4.zero, _resonance.Damping);
+        }
+
+        [UnityTest]
+        public IEnumerator AFingerOffTheFace_OrOutsideVoicing_MutesNothing()
+        {
+            yield return null;
+            FingertipDamper damper = _relic.AddComponent<FingertipDamper>();
+            damper.IsHeldByTest = true;
+            yield return null;
+            _surface.GetFacePoint(new Vector2(0.2f, 0.2f), out Vector3 onFace, out Vector3 normal);
+            Assert.IsFalse(damper.ProcessTip(onFace + _relic.transform.right * 0.6f + normal * 0.004f), "beside the relic");
+            Assert.IsFalse(_resonance.IsDamped);
+
+            _voicing.Suspended = true;
+            Assert.IsFalse(damper.ProcessTip(onFace + normal * 0.004f), "not while voicing is held closed");
+            Assert.IsFalse(_resonance.IsDamped);
+
+            _voicing.Suspended = false;
+            Assert.IsTrue(damper.ProcessTip(onFace + normal * 0.004f));
+            damper.LoseTrack();
+            Assert.IsFalse(_resonance.IsDamped, "losing the hand lifts the finger");
+        }
+
+        [UnityTest]
+        public IEnumerator TheSimulatedHand_PokesAtTheSpeedOfATap_AndCanBeLost()
+        {
+            yield return null;
+            _relic.AddComponent<FingertipStrike>();
+            SimulatedHand hand = _relic.AddComponent<SimulatedHand>();
+            yield return null;
+            ForgeEvents.RaiseStanceChanged(new StanceChangedEvent(1f, 1f, StanceTrackingSource.HeadPose, false, 1f, 1f));
+            _voicing.SetTool(VoicingTool.Chisel);
+            FingertipStrike finger = _relic.GetComponent<FingertipStrike>();
+            Vector2 face = new Vector2(-0.3f, 0.2f);
+
+            Assert.IsFalse(hand.FingerMode);
+            hand.Step(0.014f, face);
+            Assert.IsFalse(finger.IsHovering, "off, the simulated hand does nothing");
+
+            hand.FingerMode = true;
+            for (int i = 0; i < 5; i++)
+            {
+                hand.Step(0.014f, face);
+            }
+
+            Assert.IsTrue(finger.IsHovering, "the simulated fingertip hovers over the face");
+            Assert.AreEqual(0, _voicing.CutsUsed);
+
+            yield return new WaitForSecondsRealtime(0.15f);
+            hand.BeginPoke();
+            Assert.IsTrue(hand.IsPoking);
+            for (int i = 0; i < 40 && finger.TouchCount == 0; i++)
+            {
+                hand.Step(0.012f, face);
+            }
+
+            Assert.AreEqual(1, finger.TouchCount, "a poke taps once, at the speed of a real tap");
+            Assert.AreEqual(1, _voicing.CutsUsed);
+            for (int i = 0; i < 60; i++)
+            {
+                hand.Step(0.012f, face);
+            }
+
+            Assert.AreEqual(1, finger.TouchCount, "contact, then drawing back, never taps twice");
+            Assert.IsFalse(hand.IsPoking);
+
+            hand.SetHandLost(true);
+            Assert.IsFalse(finger.IsHovering, "losing the hand releases the aim point");
+            hand.Step(0.014f, face);
+            Assert.IsFalse(finger.IsHovering);
+            hand.SetHandLost(false);
+            hand.FingerMode = false;
+        }
+
+        [UnityTest]
         public IEnumerator EveryCut_IsJudged()
         {
             yield return null;

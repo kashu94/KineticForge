@@ -45,6 +45,9 @@ namespace KineticForge.Feedback
         [SerializeField, Range(0.08f, 0.4f), Tooltip("Plaque size (m).")]
         float _plaqueSize = 0.17f;
 
+        [SerializeField, Range(0.3f, 2f), Tooltip("Seconds between the relics of a progression.")]
+        float _progressionSpacing = 0.85f;
+
         [SerializeField, Range(0.01f, 0.2f), Tooltip("Gap (m) between plaques.")]
         float _gap = 0.06f;
 
@@ -74,6 +77,12 @@ namespace KineticForge.Feedback
         RelicSigil _sigil;
         RelicVoicing _voicing;
         RelicResonance _resonance;
+        const int ProgressionCapacity = 12;
+        const int ProgressionLength = 5;
+        readonly int[] _progression = new int[ProgressionCapacity];
+        int _progressionCount;
+        int _progressionNext;
+        float _progressionTime;
 
 #if KF_META_XR_CORE
         OVRHand _pointerHand;
@@ -82,6 +91,27 @@ namespace KineticForge.Feedback
 
         /// <summary>Number of relics on the wall.</summary>
         public int Count => _plaques.Count;
+
+        /// <summary>True while a progression is still playing.</summary>
+        public bool IsPlayingProgression => _progressionNext < _progressionCount;
+
+        /// <summary>
+        /// Plays the latest relics' chords in the order they were forged, one after another, so the player's tuned relics
+        /// become a short piece of music. A new call replaces one that is still playing.
+        /// </summary>
+        /// <param name="count">How many of the latest relics to play, newest last.</param>
+        public void PlayProgression(int count)
+        {
+            int play = Mathf.Clamp(count, 0, Mathf.Min(_plaques.Count, ProgressionCapacity));
+            _progressionCount = play;
+            _progressionNext = 0;
+            for (int i = 0; i < play; i++)
+            {
+                _progression[i] = _plaques.Count - play + i;
+            }
+
+            _progressionTime = Time.time;
+        }
 
         /// <summary>Rings plaque <paramref name="index"/>. For tools and tests.</summary>
         /// <param name="index">Plaque index, oldest first.</param>
@@ -164,6 +194,13 @@ namespace KineticForge.Feedback
 
         void LateUpdate()
         {
+            if (_progressionNext < _progressionCount && Time.time >= _progressionTime)
+            {
+                Ring(_progression[_progressionNext]);
+                _progressionNext++;
+                _progressionTime = Time.time + _progressionSpacing;
+            }
+
             float deltaTime = Time.deltaTime;
             for (int i = 0; i < _plaques.Count; i++)
             {
@@ -201,7 +238,9 @@ namespace KineticForge.Feedback
             }
 
             AddPlaque(relic);
-            Ring(_plaques.Count - 1);
+
+            // The new relic joins the others: the wall plays the latest few, ending on it.
+            PlayProgression(ProgressionLength);
         }
 
         void HandleTap(MicroGestureTapEvent payload)

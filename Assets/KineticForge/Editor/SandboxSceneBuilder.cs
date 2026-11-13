@@ -249,6 +249,8 @@ namespace KineticForge.EditorTools
             RelicResonance resonance = relic.AddComponent<RelicResonance>();
             relic.AddComponent<RelicVoicing>();
             relic.AddComponent<FingertipStrike>();
+            relic.AddComponent<FingertipDamper>();
+            relic.AddComponent<SimulatedHand>();
             relic.AddComponent<RelicForgeRenderer>();
 
             ChladniSand sand = relic.AddComponent<ChladniSand>();

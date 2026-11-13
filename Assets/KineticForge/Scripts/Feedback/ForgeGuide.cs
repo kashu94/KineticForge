@@ -540,6 +540,13 @@ namespace KineticForge.Feedback
                         ? "\n<color=#ffc860>The ring marks a good place to cut.</color>"
                         : "\nThe ghost on each gauge shows where a cut would take it.\nEvery cut is final. Listen for the wobble to fade.");
                 }
+
+                if (_voicing.CutsUsed >= 2 && _voicing.Tool != VoicingTool.Torch)
+                {
+                    b.Append(hands
+                        ? "\n<size=88%><color=#9fc8e0>Tip: press a fingertip of your other hand on the relic to mute the voices there.</color></size>"
+                        : "\n<size=88%><color=#9fc8e0>Tip: hold D to mute the voices at the aim point.</color></size>");
+                }
             }
         }
 

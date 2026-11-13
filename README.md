@@ -26,9 +26,9 @@ An in-world guide teaches all of this while you play.
 
 1. **The commission.** A patron asks for a chord (open fifths, major, minor, suspended, major seventh, minor seventh), each harder than the last. The pour leaves the relic's four voices, one per plate mode, ringing sharp. A crucible lowers on its chain and pours molten bronze; the relic fills its mold white-hot.
 2. **Ring it.** Reach out and tap the relic with your finger; as your finger nears it, the tuner's ghost markers follow it, so you can see what a cut would do before you touch. Every spot on the face rings different voices, and glowing filings slide onto the nodal lines of what rings. A **tuning fork** answers each strike with the target pitches, so a voice that is off beats against its fork: a wobble that slows and fades as the voice comes true.
-3. **Tune it.** Pick the chisel and cut metal. The first relic is a guided lesson with a checklist, a hint ring that marks a good cut, a verdict on every cut (good, too far, wasted) and three re-melts: swap to the torch and strike to undo your last cut. Later commissions have fewer re-melts, and the last has none. Where a voice moves most (the bare patches, never the sand) a cut lowers its pitch most. Every cut is final and cuts only lower pitch, so overshooting leaves a voice flat for good. The **tuner** beside the anvil shows each voice in cents, the in-tune band, and a ghost marker for where the next cut would take it. Rhythm is optional: a charged relic cuts coarser, a calm one finer. Bracing visibly grounds the charge; a loose stance throws sparks and cracks cold metal. When every voice is in tune the relic settles; cut again to refine, or let it finish.
+3. **Tune it.** Your other hand has a job too: press a fingertip on the relic and it mutes the voices that move most under your finger, exactly as touching a bell silences it, so you can isolate one voice and hear whether it is off (hold D in the Editor). Pick the chisel and cut metal. The first relic is a guided lesson with a checklist, a hint ring that marks a good cut, a verdict on every cut (good, too far, wasted) and three re-melts: swap to the torch and strike to undo your last cut. Later commissions have fewer re-melts, and the last has none. Where a voice moves most (the bare patches, never the sand) a cut lowers its pitch most. Every cut is final and cuts only lower pitch, so overshooting leaves a voice flat for good. The **tuner** beside the anvil shows each voice in cents, the in-tune band, and a ghost marker for where the next cut would take it. Rhythm is optional: a charged relic cuts coarser, a calm one finer. Bracing visibly grounds the charge; a loose stance throws sparks and cracks cold metal. When the last voice comes true the whole chord blooms in unison with its fork, with a burst of light, and the relic settles; cut again to refine, or let it finish.
 4. **Quench.** Pinch on the result screen: the relic is plunged into the water trough in a burst of steam and a long hiss, then rises and sings the chord exactly as you tuned it.
-5. **The Resonance Wall.** Every quenched relic hangs on the wall and keeps the chord you left it with, between sessions. Point and pinch to ring them; a relic you tuned badly sounds it. Each forge brings the next of six commissions.
+5. **The Resonance Wall.** Every quenched relic hangs on the wall and keeps the chord you left it with, between sessions. When a new relic joins, the wall plays the latest few in the order you forged them, ending on the new one: your relics become a short piece of music. Touch or point and pinch to ring them; a relic you tuned badly sounds it. Each forge brings the next of six commissions.
 6. **Mixed reality.** Pinch with both hands for a moment to forge in your own room: the hall dissolves into passthrough and the anvil, hearths, trough, wall and relic stay.
 
 The model is simplified, not a finite element simulation: the sensitivity of a voice at a point is the square of its plate mode shape there, which follows how bell founders tune. It lives in `VoicingMath`, which is unit-tested, including that every commission is solvable within its cut budget.
@@ -61,8 +61,24 @@ Use **Advance Phase** on the Forge Game Manager to skip ahead while testing.
 | Quench, then forge again (result screen) | Pinch | Index trigger | Left-click |
 | Ring a relic on the Resonance Wall | Point at it and pinch | – | Left-click it |
 | Mixed reality (forge in your room) | Pinch with both hands for a second | – | M (previews by hiding the hall) |
+| Mute voices (other hand) | Press a fingertip on the relic | – | Hold D |
 | Nudge the relic (test) | – | – | N |
 | Diagnostics panel | Test builds only | – | F1 |
+
+## Testing without a headset
+
+Everything runs in the Editor on Linux, with these keys. They apply only where no Meta runtime exists:
+
+| Key | What it does |
+|---|---|
+| F | Finger mode: the mouse moves a simulated fingertip over the relic; a left click pokes it at the speed of a real tap. The tuner's ghosts follow the hovering finger, as they do for a real hand |
+| H | Lose or regain the simulated hand, to see tracking loss |
+| D (held) | Press the other hand's finger at the aim point, muting voices |
+| T | Change tool: hammer, chisel, torch |
+| F2 | Headset-like field of view (96 degrees vertical, nearly square), to judge text size and framing |
+| Space or B | Brace; M previews mixed reality |
+
+The simulated hand drives the same code a tracked hand does, so the tap rule, the hover, the re-arm and tracking loss are all exercised. It cannot show real tracking noise, comfort, arm fatigue, frame rate or passthrough: those need a headset. Meta's own XR Simulator runs only on Windows and macOS, so on this project it is an option for the Windows laptop, not this one.
 
 ## Headless setup and tests
 
