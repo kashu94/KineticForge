@@ -46,7 +46,7 @@ namespace KineticForge.EditorTools
         const float HoldLift = 0.22f;
         const float EditorEyeHeight = 1.45f;
         const float GuideLineHeight = 0.034f;
-        const float TunerScale = 1.2f;
+        const float TunerScale = 1.35f;
         const float RelicMass = 20f;
         static readonly Vector3 RelicSize = new Vector3(0.3f, 0.3f, 0.08f);
 
@@ -319,7 +319,7 @@ namespace KineticForge.EditorTools
         {
             GameObject tuner = new GameObject("Voice Tuner");
             Vector3 eye = new Vector3(0f, 1.25f, 0f);
-            Vector3 position = new Vector3(-0.6f, 1.0f, 0.95f);
+            Vector3 position = new Vector3(-0.58f, 1.0f, 0.88f);
             tuner.transform.SetPositionAndRotation(position, Quaternion.LookRotation(position - eye, Vector3.up));
             tuner.transform.localScale = Vector3.one * TunerScale;
             VoiceTuner voiceTuner = tuner.AddComponent<VoiceTuner>();

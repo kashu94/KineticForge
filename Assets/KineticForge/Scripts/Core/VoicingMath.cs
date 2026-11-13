@@ -35,10 +35,14 @@ namespace KineticForge.Core
         /// <summary>Cuts the relic can take before the metal is spent.</summary>
         public readonly int CutBudget;
 
+        /// <summary>Times the torch can re-melt the last cut, undoing it. Early commissions allow more.</summary>
+        public readonly int Remelts;
+
         /// <summary>Creates a commission.</summary>
         public VoicingCommission(int index, string name, string chordName, float rootHz, string rootName, float[] ratios,
-            string[] roles, Vector4 startCents, float toleranceCents, int cutBudget)
+            string[] roles, Vector4 startCents, float toleranceCents, int cutBudget, int remelts)
         {
+            Remelts = remelts;
             Index = index;
             Name = name;
             ChordName = chordName;
@@ -50,6 +54,25 @@ namespace KineticForge.Core
             ToleranceCents = toleranceCents;
             CutBudget = cutBudget;
         }
+    }
+
+    /// <summary>How a cut went, judged from the change it made.</summary>
+    public enum CutVerdict : byte
+    {
+        /// <summary>No cut has been judged.</summary>
+        None = 0,
+
+        /// <summary>The cut brought voices closer to tune without spoiling any.</summary>
+        Good = 1,
+
+        /// <summary>The cut pushed a voice flat of its band, where cuts can never bring it back.</summary>
+        TooFar = 2,
+
+        /// <summary>The cut hardly changed any voice: it landed on the nodes.</summary>
+        Wasted = 3,
+
+        /// <summary>The last cut was undone with the torch.</summary>
+        Undone = 4,
     }
 
     /// <summary>
@@ -184,6 +207,34 @@ namespace KineticForge.Core
             return Mathf.Clamp01(mean * (0.9f + 0.1f * left));
         }
 
+        /// <summary>Total pitch change, in cents, below which a cut counts as wasted.</summary>
+        public const float WastedCents = 2f;
+
+        /// <summary>Judges a cut from the errors before and after it.</summary>
+        /// <param name="before">Error per voice before the cut, in cents.</param>
+        /// <param name="after">Error per voice after the cut, in cents.</param>
+        /// <param name="toleranceCents">Tolerance in cents.</param>
+        /// <returns>Wasted, too far, or good.</returns>
+        public static CutVerdict JudgeCut(Vector4 before, Vector4 after, float toleranceCents)
+        {
+            float moved = Mathf.Abs(after.x - before.x) + Mathf.Abs(after.y - before.y) + Mathf.Abs(after.z - before.z) +
+                          Mathf.Abs(after.w - before.w);
+            if (moved < WastedCents)
+            {
+                return CutVerdict.Wasted;
+            }
+
+            for (int m = 0; m < VoiceCount; m++)
+            {
+                if (after[m] < -toleranceCents && before[m] >= -toleranceCents)
+                {
+                    return CutVerdict.TooFar;
+                }
+            }
+
+            return CutVerdict.Good;
+        }
+
         /// <summary>
         /// Finds the single cut that most reduces the total squared error without pushing any voice flatter than
         /// <paramref name="toleranceCents"/>. Used for the hint, and by tests to prove each commission is solvable.
@@ -232,25 +283,28 @@ namespace KineticForge.Core
             // of the time on the hardest.
             return new[]
             {
+                // The first is the lesson: wide tolerance, generous metal and three re-melts.
                 Make(0, "Open Fifths", new[] { 1f, 1.5f, 2f, 3f }, new[] { "Root", "Fifth", "Octave", "Twelfth" },
-                    new Vector4(50f, 65f, 35f, 75f), 22f, 14),
+                    new Vector4(50f, 65f, 35f, 75f), 26f, 20, 3),
                 Make(1, "Major", new[] { 1f, 1.25f, 1.5f, 2f }, new[] { "Root", "Third", "Fifth", "Octave" },
-                    new Vector4(65f, 40f, 85f, 55f), 18f, 14),
+                    new Vector4(65f, 40f, 85f, 55f), 18f, 15, 2),
                 Make(2, "Minor", new[] { 1f, 1.2f, 1.5f, 2f }, new[] { "Root", "Minor Third", "Fifth", "Octave" },
-                    new Vector4(75f, 90f, 50f, 65f), 14f, 15),
+                    new Vector4(75f, 90f, 50f, 65f), 14f, 15, 2),
                 Make(3, "Suspended", new[] { 1f, 4f / 3f, 1.5f, 2f }, new[] { "Root", "Fourth", "Fifth", "Octave" },
-                    new Vector4(55f, 95f, 70f, 85f), 11f, 16),
+                    new Vector4(55f, 95f, 70f, 85f), 11f, 16, 1),
                 Make(4, "Major Seventh", new[] { 1f, 1.25f, 1.5f, 1.875f }, new[] { "Root", "Third", "Fifth", "Seventh" },
-                    new Vector4(80f, 60f, 100f, 90f), 8f, 16),
+                    new Vector4(80f, 60f, 100f, 90f), 8f, 16, 1),
                 Make(5, "Minor Seventh", new[] { 1f, 1.2f, 1.5f, 1.8f }, new[] { "Root", "Minor Third", "Fifth", "Seventh" },
-                    new Vector4(95f, 105f, 75f, 110f), 6f, 18),
+                    new Vector4(95f, 105f, 75f, 110f), 6f, 18, 0),
             };
         }
 
-        static VoicingCommission Make(int index, string chord, float[] ratios, string[] roles, Vector4 start, float tolerance, int budget)
+        static VoicingCommission Make(int index, string chord, float[] ratios, string[] roles, Vector4 start, float tolerance,
+            int budget, int remelts)
         {
             CymaticSigil sigil = CymaticMath.GetSigil(index);
-            return new VoicingCommission(index, sigil.Name, chord, sigil.Note, sigil.NoteName, ratios, roles, start, tolerance, budget);
+            return new VoicingCommission(index, sigil.Name, chord, sigil.Note, sigil.NoteName, ratios, roles, start, tolerance,
+                budget, remelts);
         }
     }
 }

@@ -248,6 +248,7 @@ namespace KineticForge.Feedback
             key = key * 31 + (tuned ? 1 : 0);
             key = key * 31 + (_voicing.IsSpent ? 1 : 0);
             key = key * 31 + seconds;
+            key = key * 31 + _voicing.RemeltsLeft;
             if (key == _footerKey)
             {
                 return;
@@ -268,9 +269,13 @@ namespace KineticForge.Feedback
             {
                 b.Append("<color=#8dffa6>IN TUNE</color>  <size=80%>hold still</size>");
             }
+            else if (_voicing.Tool == VoicingTool.Torch)
+            {
+                b.Append("<color=#ff7a50>TORCH</color>  <size=80%>undoes your last cut</size>");
+            }
             else if (_voicing.Tool == VoicingTool.Chisel)
             {
-                b.Append("<color=#ffb060>CHISEL</color>  <size=80%>every cut is final</size>");
+                b.Append("<color=#ffb060>CHISEL</color>  <size=80%>cuts lower pitch for good</size>");
             }
             else
             {
@@ -287,6 +292,11 @@ namespace KineticForge.Feedback
             else
             {
                 b.Append("CUTS <color=#ffc860>").Append(_voicing.CutsLeft.ToString(CultureInfo.InvariantCulture)).Append("</color>");
+                if (_voicing.RemeltsLeft > 0)
+                {
+                    b.Append("  <size=80%>UNDO <color=#ff9a70>").Append(_voicing.RemeltsLeft.ToString(CultureInfo.InvariantCulture))
+                        .Append("</color></size>");
+                }
             }
 
             _footerRight.text = b.ToString();
@@ -356,8 +366,8 @@ namespace KineticForge.Feedback
             _hint = CreateText("Hint", _textFont, 0.0125f, TextAlignmentOptions.Center,
                 new Vector2(0f, -halfHeight + 0.026f), new Vector2(_size.x - 0.04f, 0.025f), new Color(0.72f, 0.7f, 0.68f), 0f);
             _hint.text = ForgePlatform.IsMetaRuntimeAvailable
-                ? "Tap your left thumb to swap hammer and chisel"
-                : "T swaps hammer and chisel";
+                ? "Tap your left thumb to change tool"
+                : "T changes tool";
             _built = true;
         }
 

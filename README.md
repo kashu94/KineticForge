@@ -26,7 +26,7 @@ An in-world guide teaches all of this while you play.
 
 1. **The commission.** A patron asks for a chord (open fifths, major, minor, suspended, major seventh, minor seventh), each harder than the last. The pour leaves the relic's four voices, one per plate mode, ringing sharp. A crucible lowers on its chain and pours molten bronze; the relic fills its mold white-hot.
 2. **Ring it.** Every spot on the face rings different voices, and glowing filings slide onto the nodal lines of what rings. A **tuning fork** answers each strike with the target pitches, so a voice that is off beats against its fork: a wobble that slows and fades as the voice comes true.
-3. **Tune it.** Swap to the chisel and cut metal. Where a voice moves most (the bare patches, never the sand) a cut lowers its pitch most. Every cut is final and cuts only lower pitch, so overshooting leaves a voice flat for good. The **tuner** beside the anvil shows each voice in cents, the in-tune band, and a ghost marker for where the next cut would take it. Rhythm is optional: a charged relic cuts coarser, a calm one finer. Bracing visibly grounds the charge; a loose stance throws sparks and cracks cold metal. When every voice is in tune the relic settles; cut again to refine, or let it finish.
+3. **Tune it.** Pick the chisel and cut metal. The first relic is a guided lesson with a checklist, a hint ring that marks a good cut, a verdict on every cut (good, too far, wasted) and three re-melts: swap to the torch and strike to undo your last cut. Later commissions have fewer re-melts, and the last has none. Where a voice moves most (the bare patches, never the sand) a cut lowers its pitch most. Every cut is final and cuts only lower pitch, so overshooting leaves a voice flat for good. The **tuner** beside the anvil shows each voice in cents, the in-tune band, and a ghost marker for where the next cut would take it. Rhythm is optional: a charged relic cuts coarser, a calm one finer. Bracing visibly grounds the charge; a loose stance throws sparks and cracks cold metal. When every voice is in tune the relic settles; cut again to refine, or let it finish.
 4. **Quench.** Pinch on the result screen: the relic is plunged into the water trough in a burst of steam and a long hiss, then rises and sings the chord exactly as you tuned it.
 5. **The Resonance Wall.** Every quenched relic hangs on the wall and keeps the chord you left it with, between sessions. Point and pinch to ring them; a relic you tuned badly sounds it. Each forge brings the next of six commissions.
 6. **Mixed reality.** Pinch with both hands for a moment to forge in your own room: the hall dissolves into passthrough and the anvil, hearths, trough, wall and relic stay.
@@ -57,7 +57,7 @@ Use **Advance Phase** on the Forge Game Manager to skip ahead while testing.
 | Grab the relic | Close your hand near it | Squeeze the grip | Held automatically by the Relic Hold Simulator |
 | Aim the chisel | Point at the relic; slide your thumb along your index finger for fine control | Thumbstick | Right-drag the mouse |
 | Ring or cut (strike) | Pinch, or tap your thumb on your index finger | Index trigger | Left-click |
-| Swap hammer and chisel | Tap the thumb of your other hand | Left index trigger | T |
+| Change tool: hammer, chisel, torch (undo) | Tap the thumb of your other hand | Left index trigger | T |
 | Quench, then forge again (result screen) | Pinch | Index trigger | Left-click |
 | Ring a relic on the Resonance Wall | Point at it and pinch | – | Left-click it |
 | Mixed reality (forge in your room) | Pinch with both hands for a second | – | M (previews by hiding the hall) |
@@ -153,7 +153,9 @@ All code lives in `Assets/KineticForge`, one assembly per module:
 
 The hall is built from scanned, real-world-scale CC0 assets from [Poly Haven](https://polyhaven.com) in `Assets/KineticForge/ThirdParty/PolyHaven`, credited, together with the fonts, in [`ThirdParty/CREDITS.md`](Assets/KineticForge/ThirdParty/CREDITS.md). Its light is baked (moonlight through a barred window, a lantern, the furnace mouth's glow), while the three fires flicker in real time; light probes and a box-projected reflection probe carry the room onto the relic.
 
-Shaders live in `Assets/KineticForge/Shaders`: Forge Metal (hot, carvable, resonating metal with a mottled oxide skin when hot), Forge Glow (additive flames, sparks and rings), Forge Panel (the smoked-glass plates behind world text) and Forge Text (test-build labels).
+**Kinetic Forge > Reset Saved Progress** clears the saved commission and the Resonance Wall, so the next run starts with the lesson.
+
+Shaders live in `Assets/KineticForge/Shaders`: Forge Metal (hot, carvable, resonating metal with a mottled oxide skin when hot), Forge Glow (additive flames, sparks and rings), Forge Panel (the smoked-glass plates behind world text), Forge Gauge (the tuner's per-voice gauges) and Forge Text (test-build labels).
 
 World text is TextMesh Pro, set in Cinzel for titles and Inter for instructions, both under the SIL Open Font License (`Assets/KineticForge/Fonts`). Their font assets are built by the sandbox builder with every character the game prints, then made static, so no glyph is rasterized on the headset. TMP's essential resources ship in `Assets/TextMesh Pro`.
 

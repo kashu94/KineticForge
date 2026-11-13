@@ -40,6 +40,8 @@ namespace KineticForge.Feedback
         [SerializeField, ColorUsage(false, true), Tooltip("Ring color with the chisel in hand, outside the rhythm window.")]
         Color _chiselColor = new Color(1.3f, 0.55f, 0.18f);
 
+        static readonly Color s_torchColor = new Color(1.7f, 0.3f, 0.12f);
+
         RelicCarvingSurface _surface;
         RelicResonance _resonance;
         RelicSigil _sigil;
@@ -177,7 +179,8 @@ namespace KineticForge.Feedback
             }
 
             _cursor.GetStrikePoint(out point, out normal);
-            Color baseColor = _voicing.Tool == VoicingTool.Chisel ? _chiselColor : _waitColor;
+            Color baseColor = _voicing.Tool == VoicingTool.Torch ? s_torchColor
+                : _voicing.Tool == VoicingTool.Chisel ? _chiselColor : _waitColor;
             float diameter;
             Color color;
             if (_resonance.IsPulsing)

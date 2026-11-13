@@ -132,7 +132,8 @@ namespace KineticForge.Crafting
         /// </summary>
         /// <summary>
         /// A strike during voicing: the hammer only rings the relic; the chisel first cuts where it lands, lowering the
-        /// voices by their sensitivity there, then rings it, so the player hears the result of the cut at once.
+        /// voices by their sensitivity there, then rings it, so the player hears the result of the cut at once. The torch
+        /// re-melts the last cut.
         /// </summary>
         bool StrikeVoicing(ForgeHand hand, float intensity, float now)
         {
@@ -150,6 +151,11 @@ namespace KineticForge.Crafting
             {
                 Vector2 uv = _surface.WorldToUV(point);
                 _voicing.ApplyCut(uv, strength, _resonance.Softness, _resonance.Charge);
+            }
+            else if (_voicing.Tool == VoicingTool.Torch && _voicing.Remelt())
+            {
+                // The torch reheats the metal where it re-melts the cut.
+                _resonance.SetHeat(Mathf.Max(_resonance.Heat, 0.95f));
             }
 
             ApplyRecoil(normal, strength);

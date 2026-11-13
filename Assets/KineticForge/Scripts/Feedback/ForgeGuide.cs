@@ -35,6 +35,7 @@ namespace KineticForge.Feedback
 
         const float TextScaleFactor = 0.1f;
         const int StageCount = 4;
+        const float VerdictSeconds = 3f;
 
         /// <summary>Strikes the relic takes before the first lesson gives way to the tuning lesson.</summary>
         const int VoicingRingStrikes = 3;
@@ -315,6 +316,9 @@ namespace KineticForge.Feedback
                     key = key * 31 + (_voicing.HintActive ? 1 : 0);
                     key = key * 31 + (_voicing.IsSpent ? 1 : 0);
                     key = key * 31 + VoiceStateMask();
+                    key = key * 31 + (Time.time - _voicing.LastVerdictTime < VerdictSeconds ? (int)_voicing.LastVerdict : 0);
+                    key = key * 31 + _voicing.RemeltsLeft;
+                    key = key * 31 + (_voicing.CanRemelt ? 1 : 0);
                 }
 
                 if (_sigil != null)
@@ -493,7 +497,7 @@ namespace KineticForge.Feedback
                 return;
             }
 
-            if (_voicing.CutsUsed == 0 && _strikes < VoicingRingStrikes)
+            if (_voicing.CutsUsed == 0 && _strikes < VoicingRingStrikes && commission.Index != 0)
             {
                 Step(b, 1);
                 Title(b, "RING THE RELIC");
@@ -503,9 +507,14 @@ namespace KineticForge.Feedback
                 return;
             }
 
-            Step(b, 2);
+            Step(b, commission.Index == 0 && _strikes < VoicingRingStrikes ? 1 : 2);
             Title(b, "TUNE THE VOICES");
-            if (_voicing.CutsUsed == 0)
+            b.Append("\n<size=88%>Goal: every needle inside the <color=#8dffa6>green band</color></size>");
+            if (commission.Index == 0)
+            {
+                AppendLesson(b, hands);
+            }
+            else if (_voicing.CutsUsed == 0)
             {
                 b.Append("\nCutting lowers pitch where the metal moves most:\nthe <b>bare patches</b>, never the sand.");
             }
@@ -514,15 +523,93 @@ namespace KineticForge.Feedback
                 AppendVoiceStates(b, commission);
             }
 
-            if (_voicing.Tool == VoicingTool.Hammer)
+            AppendVerdict(b);
+            if (commission.Index != 0)
             {
-                b.Append(hands ? "\n<color=#ffb060>Tap your left thumb for the chisel.</color>" : "\n<color=#ffb060>Press T for the chisel.</color>");
+                if (_voicing.Tool == VoicingTool.Hammer)
+                {
+                    b.Append(hands ? "\n<color=#ffb060>Tap your left thumb for the chisel.</color>" : "\n<color=#ffb060>Press T for the chisel.</color>");
+                }
+                else if (_voicing.Tool == VoicingTool.Torch)
+                {
+                    b.Append("\n<color=#ff7a50>Torch: strike to undo your last cut.</color>");
+                }
+                else
+                {
+                    b.Append(_voicing.HintActive
+                        ? "\n<color=#ffc860>The ring marks a good place to cut.</color>"
+                        : "\nThe ghost on each gauge shows where a cut would take it.\nEvery cut is final. Listen for the wobble to fade.");
+                }
+            }
+        }
+
+        /// <summary>The first relic's lesson: a checklist with the current step marked, then what to do next.</summary>
+        void AppendLesson(StringBuilder b, bool hands)
+        {
+            bool rang = _strikes >= VoicingRingStrikes;
+            bool chisel = _voicing.Tool != VoicingTool.Hammer || _voicing.CutsUsed > 0;
+            bool cut = _voicing.CutsUsed > 0;
+            int current = !rang ? 1 : !chisel ? 2 : !cut ? 3 : 4;
+            b.Append('\n');
+            LessonLine(b, 1, current, rang, "Ring the relic: " + Mathf.Min(_strikes, VoicingRingStrikes) + " of " + VoicingRingStrikes);
+            LessonLine(b, 2, current, chisel, hands ? "Pick the chisel: tap your left thumb" : "Pick the chisel: press T");
+            LessonLine(b, 3, current, cut, "Cut where the ring points");
+            if (current == 4)
+            {
+                AppendVoiceStates(b, _voicing.Commission);
+                b.Append(_voicing.Tool == VoicingTool.Torch
+                    ? "\n<color=#ff7a50>Torch: strike to undo your last cut.</color>"
+                    : _voicing.CanRemelt && _voicing.Tool == VoicingTool.Chisel
+                        ? (hands ? "\n<size=88%>Cut too far? Tap your left thumb for the torch.</size>" : "\n<size=88%>Cut too far? Press T for the torch.</size>")
+                        : string.Empty);
+            }
+            else if (current == 3)
+            {
+                b.Append("\n<size=88%>Aim: each gauge's ghost shows where a cut would take it.</size>");
+            }
+        }
+
+        static void LessonLine(StringBuilder b, int number, int current, bool done, string text)
+        {
+            b.Append('\n');
+            if (done)
+            {
+                b.Append("<color=#8dffa6>[x] ").Append(text).Append("</color>");
+            }
+            else if (number == current)
+            {
+                b.Append("<color=#ffc860><b>[ ] ").Append(text).Append("</b></color>");
             }
             else
             {
-                b.Append(_voicing.HintActive
-                    ? "\n<color=#ffc860>The ring marks a good place to cut.</color>"
-                    : "\nThe ghost on each gauge shows where a cut would take it.\nEvery cut is final. Listen for the wobble to fade.");
+                b.Append("<color=#8a7f75>[ ] ").Append(text).Append("</color>");
+            }
+        }
+
+        /// <summary>How the last cut went, for three seconds after it.</summary>
+        void AppendVerdict(StringBuilder b)
+        {
+            if (Time.time - _voicing.LastVerdictTime >= VerdictSeconds)
+            {
+                return;
+            }
+
+            switch (_voicing.LastVerdict)
+            {
+                case CutVerdict.Good:
+                    b.Append("\n<color=#8dffa6><b>GOOD CUT</b></color>");
+                    break;
+                case CutVerdict.TooFar:
+                    b.Append(_voicing.CanRemelt
+                        ? "\n<color=#ff7a6a><b>TOO FAR:</b> a voice went flat. Use the torch to undo it.</color>"
+                        : "\n<color=#ff7a6a><b>TOO FAR:</b> a voice went flat, and cuts never raise it.</color>");
+                    break;
+                case CutVerdict.Wasted:
+                    b.Append("\n<color=#ffc860><b>WASTED:</b> that spot barely moves any voice.</color>");
+                    break;
+                case CutVerdict.Undone:
+                    b.Append("\n<color=#ffb060><b>UNDONE:</b> the last cut is re-melted.</color>");
+                    break;
             }
         }
 

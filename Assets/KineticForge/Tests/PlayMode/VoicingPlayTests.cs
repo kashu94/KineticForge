@@ -97,9 +97,12 @@ namespace KineticForge.Tests
         }
 
         [UnityTest]
-        public IEnumerator TappingTheLeftThumb_SwapsTheTool()
+        public IEnumerator TappingTheLeftThumb_CyclesTheTool()
         {
             yield return null;
+
+            // Keep the strike controller out of it: a tap would otherwise also strike.
+            _strikes.enabled = false;
             Assert.AreEqual(VoicingTool.Hammer, _voicing.Tool);
             VoicingTool announced = VoicingTool.Hammer;
             _voicing.OnToolChanged += tool => announced = tool;
@@ -107,7 +110,88 @@ namespace KineticForge.Tests
             Assert.AreEqual(VoicingTool.Chisel, _voicing.Tool);
             Assert.AreEqual(VoicingTool.Chisel, announced);
             _voicing.ToggleTool();
+            Assert.AreEqual(VoicingTool.Hammer, _voicing.Tool, "with nothing to undo, the torch is skipped");
+        }
+
+        [UnityTest]
+        public IEnumerator TheTorch_UndoesTheLastCut_AndGivesTheCutBack()
+        {
+            yield return null;
+            _voicing.SetTool(VoicingTool.Chisel);
+            Vector4 start = _voicing.Errors;
+            yield return StrikeAt(new Vector2(-0.6f, 0.5f));
+            float size = VoicingMath.CutSize(1f, _resonance.Softness, _resonance.Charge);
+            Assert.IsTrue(VoicingMath.SuggestCut(_voicing.Errors, _voicing.Commission.ToleranceCents, size, out Vector2 uv));
+            yield return StrikeAt(UvToFace(uv));
+            Assert.AreEqual(2, _voicing.CutsUsed);
+            Vector4 afterTwo = _voicing.Errors;
+            Assert.IsTrue(_voicing.CanRemelt);
+
+            bool rebuilt = false;
+            _voicing.OnRemelt += () => rebuilt = true;
+            _voicing.ToggleTool();
+            Assert.AreEqual(VoicingTool.Torch, _voicing.Tool, "the torch follows the chisel once a cut can be undone");
+            yield return StrikeAt(new Vector2(0f, 0f));
+
+            Assert.IsTrue(rebuilt, "listeners are told to rebuild the carving");
+            Assert.AreEqual(1, _voicing.CutsUsed, "the cut is given back");
+            Assert.AreEqual(VoicingMath.GetCommission(0).Remelts - 1, _voicing.RemeltsLeft);
+            Assert.AreEqual(VoicingTool.Chisel, _voicing.Tool, "the torch gives way to the chisel");
+            Assert.AreEqual(CutVerdict.Undone, _voicing.LastVerdict);
+            Assert.Greater((afterTwo - _voicing.Errors).magnitude, 0.5f, "the voices went back up");
+            Assert.Less(_voicing.Errors.x, start.x + 0.01f);
+            Assert.GreaterOrEqual(_resonance.Heat, 0.95f, "the torch reheats the metal");
+        }
+
+        [UnityTest]
+        public IEnumerator TheTorch_IsSkipped_WhenThereIsNothingToUndo_OrNoReMeltsRemain()
+        {
+            yield return null;
+            _voicing.SetTool(VoicingTool.Chisel);
+            _voicing.ToggleTool();
+            Assert.AreEqual(VoicingTool.Hammer, _voicing.Tool, "no cut yet, so no torch");
+
+            _voicing.Begin(5);
+            _voicing.SetTool(VoicingTool.Chisel);
+            yield return StrikeAt(new Vector2(-0.6f, 0.5f));
+            Assert.AreEqual(1, _voicing.CutsUsed);
+            Assert.IsFalse(_voicing.CanRemelt, "the hardest commission has no re-melts");
+            _voicing.ToggleTool();
             Assert.AreEqual(VoicingTool.Hammer, _voicing.Tool);
+            Assert.IsFalse(_voicing.Remelt());
+        }
+
+        [UnityTest]
+        public IEnumerator EveryCut_IsJudged()
+        {
+            yield return null;
+            _voicing.SetTool(VoicingTool.Chisel);
+            Assert.AreEqual(CutVerdict.None, _voicing.LastVerdict);
+
+            yield return StrikeAt(Vector2.zero);
+            Assert.AreEqual(CutVerdict.Wasted, _voicing.LastVerdict, "a cut on the nodes moves nothing");
+
+            float size = VoicingMath.CutSize(1f, _resonance.Softness, _resonance.Charge);
+            Assert.IsTrue(VoicingMath.SuggestCut(_voicing.Errors, _voicing.Commission.ToleranceCents, size, out Vector2 uv));
+            yield return StrikeAt(UvToFace(uv));
+            Assert.AreEqual(CutVerdict.Good, _voicing.LastVerdict);
+            Assert.AreEqual(Time.time, _voicing.LastVerdictTime, 0.5f);
+        }
+
+        [UnityTest]
+        public IEnumerator TheHint_NeedsTheChisel_AndComesSoonOnTheLesson()
+        {
+            yield return null;
+            Assert.AreEqual(0, _voicing.CommissionIndex);
+            yield return new WaitForSeconds(RelicVoicing.LessonHintDelay + 0.4f);
+            Assert.IsFalse(_voicing.HintActive, "no hint while the hammer is in hand");
+
+            _voicing.SetTool(VoicingTool.Chisel);
+            Assert.IsTrue(_voicing.HintActive, "the lesson points to a good cut once the chisel is up and nothing is cut");
+            Assert.IsTrue(VoicingMath.SuggestCut(_voicing.Errors, _voicing.Commission.ToleranceCents,
+                VoicingMath.CutSize(1f, 0.8f, 0f), out Vector2 expected));
+            Assert.AreEqual(expected.x, _voicing.HintUV.x, 1e-4f);
+            Assert.AreEqual(expected.y, _voicing.HintUV.y, 1e-4f);
         }
 
         [UnityTest]

@@ -30,6 +30,9 @@ namespace KineticForge.Crafting
 
         /// <summary>A strike cuts the relic where it lands and then rings it: for tuning.</summary>
         Chisel = 1,
+
+        /// <summary>A strike re-melts the last cut, undoing it. Available while re-melts remain.</summary>
+        Torch = 2,
     }
 
     /// <summary>
@@ -50,8 +53,9 @@ namespace KineticForge.Crafting
     /// the player may keep refining. If the cut budget runs out first, the relic is finished as it stands.
     /// </para>
     /// <para>
-    /// <b>Input.</b> A tap of the other hand's thumb, or the T key in the Editor, swaps hammer and chisel. Strikes and cuts
-    /// come from <see cref="ChiselStrikeController"/>, which calls <see cref="ApplyCut"/>.
+    /// <b>Input.</b> A tap of the other hand's thumb, or the T key in the Editor, cycles hammer, chisel and, while it can be
+    /// used, the torch, which re-melts the last cut. Strikes and cuts come from <see cref="ChiselStrikeController"/>, which
+    /// calls <see cref="ApplyCut"/> and <see cref="Remelt"/>.
     /// </para>
     /// </remarks>
     [RequireComponent(typeof(RelicCarvingSurface), typeof(RelicResonance))]
@@ -60,7 +64,9 @@ namespace KineticForge.Crafting
     public sealed class RelicVoicing : MonoBehaviour
     {
         const string LogSource = nameof(RelicVoicing);
-        const string NextCommissionKey = "KineticForge.NextCommission";
+
+        /// <summary>PlayerPrefs key holding the index of the next commission.</summary>
+        public const string NextCommissionKey = "KineticForge.NextCommission";
 
         [SerializeField, Range(0.5f, 6f), Tooltip("Seconds the relic rings in tune before it is finished. A further cut cancels it.")]
         float _settleSeconds = 2.4f;
@@ -89,6 +95,14 @@ namespace KineticForge.Crafting
         bool _hintValid;
         Vector2 _hintUV;
         float _quality;
+        const int HistoryCapacity = 32;
+
+        readonly Vector4[] _deltaHistory = new Vector4[HistoryCapacity];
+        readonly Vector2[] _uvHistory = new Vector2[HistoryCapacity];
+        int _remeltsUsed;
+        CutVerdict _verdict;
+        float _verdictTime = -100f;
+        readonly ForgeSignal _remeltSignal = new ForgeSignal("RelicVoicing.OnRemelt");
         readonly ForgeSignal<Vector2> _cutSignal = new ForgeSignal<Vector2>("RelicVoicing.OnCut");
         readonly ForgeSignal<VoicingTool> _toolSignal = new ForgeSignal<VoicingTool>("RelicVoicing.OnToolChanged");
         readonly ForgeSignal _tunedSignal = new ForgeSignal("RelicVoicing.OnInTune");
@@ -100,6 +114,13 @@ namespace KineticForge.Crafting
         {
             add => _cutSignal.Add(value);
             remove => _cutSignal.Remove(value);
+        }
+
+        /// <summary>Raised when the torch undoes the last cut. Listeners should rebuild from <see cref="GetCutUV"/>.</summary>
+        public event Action OnRemelt
+        {
+            add => _remeltSignal.Add(value);
+            remove => _remeltSignal.Remove(value);
         }
 
         /// <summary>Raised when the tool changes.</summary>
@@ -140,6 +161,22 @@ namespace KineticForge.Crafting
         /// <summary>Cuts left before the metal is spent.</summary>
         public int CutsLeft => Mathf.Max(0, _commission.CutBudget - _cutsUsed);
 
+        /// <summary>Re-melts left to undo cuts.</summary>
+        public int RemeltsLeft => Mathf.Max(0, _commission.Remelts - _remeltsUsed);
+
+        /// <summary>True when the torch can undo the last cut now.</summary>
+        public bool CanRemelt => IsActive && _cutsUsed > 0 && RemeltsLeft > 0;
+
+        /// <summary>How the last cut went.</summary>
+        public CutVerdict LastVerdict => _verdict;
+
+        /// <summary>Game time of the last verdict, for fading messages.</summary>
+        public float LastVerdictTime => _verdictTime;
+
+        /// <summary>Face position of cut <paramref name="index"/>, oldest first, for rebuilding the relic's carving.</summary>
+        /// <param name="index">Index in [0, <see cref="CutsUsed"/>).</param>
+        public Vector2 GetCutUV(int index) => _uvHistory[Mathf.Clamp(index, 0, HistoryCapacity - 1)];
+
         /// <summary>True once every voice is within tolerance.</summary>
         public bool IsInTune => VoicingMath.InTune(_errors, _commission.ToleranceCents);
 
@@ -152,8 +189,15 @@ namespace KineticForge.Crafting
         /// <summary>Quality the finished relic earned, in [0, 1].</summary>
         public float Quality => _quality;
 
-        /// <summary>True when the hint should show where to cut.</summary>
-        public bool HintActive => _stage == VoicingStage.Voicing && _hintValid && _idleTime >= _hintDelay;
+        /// <summary>
+        /// True when the hint should show where to cut: with the chisel in hand and no cut for a while. The first
+        /// commission, the lesson, shows it after a couple of seconds.
+        /// </summary>
+        public bool HintActive => _stage == VoicingStage.Voicing && _tool == VoicingTool.Chisel && _hintValid &&
+                                  _idleTime >= (_commission.Index == 0 ? LessonHintDelay : _hintDelay);
+
+        /// <summary>Seconds the lesson waits before it shows where to cut.</summary>
+        public const float LessonHintDelay = 2f;
 
         /// <summary>Face position of the suggested cut. Meaningful while <see cref="HintActive"/>.</summary>
         public Vector2 HintUV => _hintUV;
@@ -192,6 +236,9 @@ namespace KineticForge.Crafting
             _spent = false;
             _idleTime = 0f;
             _quality = 0f;
+            _remeltsUsed = 0;
+            _verdict = CutVerdict.None;
+            _verdictTime = -100f;
             _stage = VoicingStage.Voicing;
             RefreshHint();
             SetTool(VoicingTool.Hammer);
@@ -205,10 +252,51 @@ namespace KineticForge.Crafting
                 _commission.CutBudget + " cuts.", this);
         }
 
-        /// <summary>Swaps hammer and chisel.</summary>
+        /// <summary>Cycles hammer, chisel and, while the torch can undo a cut, the torch.</summary>
         public void ToggleTool()
         {
-            SetTool(_tool == VoicingTool.Hammer ? VoicingTool.Chisel : VoicingTool.Hammer);
+            switch (_tool)
+            {
+                case VoicingTool.Hammer:
+                    SetTool(VoicingTool.Chisel);
+                    break;
+                case VoicingTool.Chisel:
+                    SetTool(CanRemelt ? VoicingTool.Torch : VoicingTool.Hammer);
+                    break;
+                default:
+                    SetTool(VoicingTool.Hammer);
+                    break;
+            }
+        }
+
+        /// <summary>
+        /// Re-melts the last cut: the voices return to how they were before it, and the cut is given back. Does nothing
+        /// when no cut can be undone. The torch then gives way to the chisel.
+        /// </summary>
+        /// <returns>True when a cut was undone.</returns>
+        public bool Remelt()
+        {
+            if (!CanRemelt || _cutsUsed > HistoryCapacity)
+            {
+                return false;
+            }
+
+            int last = _cutsUsed - 1;
+            _errors -= _deltaHistory[last];
+            _cutsUsed = last;
+            _remeltsUsed++;
+            _stage = VoicingStage.Voicing;
+            _spent = false;
+            _settleTimer = 0f;
+            _idleTime = 0f;
+            _verdict = CutVerdict.Undone;
+            _verdictTime = Time.time;
+            RefreshHint();
+            SetTool(VoicingTool.Chisel);
+            _remeltSignal.Raise();
+            ForgeLog.Info(ForgeLogChannel.Crafting, LogSource, "CUT_REMELTED",
+                "The last cut was re-melted; " + RemeltsLeft + " re-melts left, " + CutsLeft + " cuts left.", this);
+            return true;
         }
 
         /// <summary>Puts a tool in hand.</summary>
@@ -252,8 +340,17 @@ namespace KineticForge.Crafting
 
             uv = new Vector2(Mathf.Clamp01(uv.x), Mathf.Clamp01(uv.y));
             Vector4 delta = Preview(uv, strength, softness, charge);
+            Vector4 before = _errors;
             _errors += delta;
+            if (_cutsUsed < HistoryCapacity)
+            {
+                _deltaHistory[_cutsUsed] = delta;
+                _uvHistory[_cutsUsed] = uv;
+            }
+
             _cutsUsed++;
+            _verdict = VoicingMath.JudgeCut(before, _errors, _commission.ToleranceCents);
+            _verdictTime = Time.time;
             _idleTime = 0f;
             _settleTimer = 0f;
             _spent = false;

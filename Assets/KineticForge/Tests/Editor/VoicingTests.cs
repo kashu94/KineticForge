@@ -38,6 +38,36 @@ namespace KineticForge.Tests
         }
 
         [Test]
+        public void TheLesson_IsGenerous_AndRemeltsTaperOff()
+        {
+            VoicingCommission lesson = VoicingMath.GetCommission(0);
+            Assert.GreaterOrEqual(lesson.Remelts, 3, "the first relic forgives mistakes");
+            Assert.GreaterOrEqual(lesson.CutBudget, 20);
+            int previous = int.MaxValue;
+            for (int i = 0; i < VoicingMath.CommissionCount; i++)
+            {
+                int remelts = VoicingMath.GetCommission(i).Remelts;
+                Assert.LessOrEqual(remelts, previous, "re-melts never increase with difficulty");
+                previous = remelts;
+            }
+
+            Assert.AreEqual(0, VoicingMath.GetCommission(VoicingMath.CommissionCount - 1).Remelts, "the last commission has no net");
+        }
+
+        [Test]
+        public void JudgeCut_SeparatesGoodTooFarAndWasted()
+        {
+            const float Tolerance = 14f;
+            Vector4 before = new Vector4(60f, 40f, 30f, 20f);
+            Assert.AreEqual(CutVerdict.Wasted, VoicingMath.JudgeCut(before, before + new Vector4(-0.3f, -0.2f, 0f, 0f), Tolerance));
+            Assert.AreEqual(CutVerdict.Good, VoicingMath.JudgeCut(before, before + new Vector4(-12f, -8f, -3f, 0f), Tolerance));
+            Assert.AreEqual(CutVerdict.TooFar, VoicingMath.JudgeCut(before, before + new Vector4(-12f, -8f, -50f, 0f), Tolerance),
+                "pushing a voice below the band is too far");
+            Assert.AreEqual(CutVerdict.Good, VoicingMath.JudgeCut(new Vector4(-30f, 40f, 30f, 20f), new Vector4(-34f, 30f, 25f, 20f), Tolerance),
+                "a voice that was already flat is not blamed again");
+        }
+
+        [Test]
         public void TargetShift_IsZeroForNaturalPartials_AndMatchesTheRatio()
         {
             VoicingCommission fifths = VoicingMath.GetCommission(0);

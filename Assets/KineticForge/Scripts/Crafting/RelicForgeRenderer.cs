@@ -65,6 +65,7 @@ namespace KineticForge.Crafting
         RelicSigil _sigil;
         RelicVoicing _voicing;
         Action<Vector2> _onCut;
+        Action _onRemelt;
         Rigidbody _body;
         MeshRenderer _renderer;
         float _fill = 1f;
@@ -132,6 +133,7 @@ namespace KineticForge.Crafting
             _sigil = GetComponent<RelicSigil>();
             _body = GetComponent<Rigidbody>();
             _onCut = HandleCut;
+            _onRemelt = HandleRemelt;
             _renderer = GetComponent<MeshRenderer>();
             _block = new MaterialPropertyBlock();
             _onResonated = HandleResonated;
@@ -155,6 +157,7 @@ namespace KineticForge.Crafting
             if (_voicing != null)
             {
                 _voicing.OnCut += _onCut;
+                _voicing.OnRemelt += _onRemelt;
             }
         }
 
@@ -165,6 +168,7 @@ namespace KineticForge.Crafting
             if (_voicing != null)
             {
                 _voicing.OnCut -= _onCut;
+                _voicing.OnRemelt -= _onRemelt;
             }
         }
 
@@ -177,7 +181,23 @@ namespace KineticForge.Crafting
                 if (_voicing != null)
                 {
                     _voicing.OnCut += _onCut;
+                    _voicing.OnRemelt += _onRemelt;
                 }
+            }
+        }
+
+        /// <summary>The torch undid a cut: the plate is smoothed and every remaining cut is cut again.</summary>
+        void HandleRemelt()
+        {
+            if (_vertices == null || _voicing == null)
+            {
+                return;
+            }
+
+            ResetCarving();
+            for (int i = 0; i < _voicing.CutsUsed; i++)
+            {
+                HandleCut(_voicing.GetCutUV(i));
             }
         }
 

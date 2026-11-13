@@ -142,6 +142,18 @@ Shader "Kinetic Forge/Forge Gauge"
                 color = lerp(color, lerp(needleColor, half3(1, 1, 1), 0.55), needleDistance);
                 alpha = max(alpha, needleDistance);
 
+                // A sharp voice shows chevrons drifting from its needle toward the band: cut to bring it down.
+                if (_Error > _Tolerance)
+                {
+                    const float spacing = 0.014;
+                    float phase = frac((p.x + _Time.y * 0.022) / spacing);
+                    float arm = phase * spacing * 0.8;
+                    float chevron = saturate(0.5 - (abs(abs(p.y) - arm) - 0.0008) / aa) * step(abs(p.y), 0.0105);
+                    chevron *= step(band + 0.006, p.x) * step(p.x, here - 0.011);
+                    color = lerp(color, needleColor, chevron * 0.85);
+                    alpha = max(alpha, chevron * 0.8);
+                }
+
                 alpha *= lerp(0.38, 1.0, _Active) * _Fade;
                 color = MixFog(color, input.fogFactor);
                 return half4(color, alpha);
