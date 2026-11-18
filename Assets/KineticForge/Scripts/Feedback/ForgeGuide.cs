@@ -423,6 +423,13 @@ namespace KineticForge.Feedback
                 return;
             }
 
+            if (_voicing != null && _voicing.Stage == VoicingStage.Done)
+            {
+                // The relic is forged and the result is about to appear: say so rather than fall back to the rune steps.
+                b.Append("<color=#8dffa6><b>RELIC FORGED</b></color>\nListen: it sings its chord.");
+                return;
+            }
+
             if (_sigil != null && _sigil.Stage == SigilStage.Awakening)
             {
                 BuildAwakening(b, hands);
